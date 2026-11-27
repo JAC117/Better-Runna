@@ -532,7 +532,8 @@ export function generateGpsTelemetryAndSplits(params: {
 export function buildPastWorkoutsList(
   weeks: TrainingWeek[],
   profile: UserProfile,
-  watchModel: string
+  watchModel: string,
+  includeDemoHistory: boolean = false
 ): PastWorkoutRecord[] {
   const records: PastWorkoutRecord[] = [];
   const base5kSecPerKm = (profile.current5kMinutes * 60) / 5;
@@ -610,7 +611,13 @@ export function buildPastWorkoutsList(
     });
   });
 
-  // 2. Append rich recent historical GPS runs so the runner can explore diverse routes & terrain
+  if (!includeDemoHistory) {
+    return records.sort(
+      (a, b) => new Date(b.isoDate).getTime() - new Date(a.isoDate).getTime()
+    );
+  }
+
+  // 2. Append sample historical GPS runs ONLY for the demo showcase account
   const historicalTemplates: {
     id: string;
     title: string;

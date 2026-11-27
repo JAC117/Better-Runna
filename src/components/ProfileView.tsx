@@ -50,8 +50,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     0
   );
 
-  // Calculate active streak
-  const currentStreak = Math.max(1, completedRuns.length);
+  // Calculate active streak (0 for new accounts with no runs)
+  const currentStreak = completedRuns.length;
 
   const zones = calculatePaceZones(profile.current5kMinutes);
   const predictions = calculateRacePredictions(profile.current5kMinutes);
@@ -87,12 +87,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               {profile.name}
             </h1>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Goal:{' '}
-              <span className="text-white font-semibold">
-                {profile.goalLabel}
-              </span>{' '}
-              • {profile.daysPerWeek} runs/week • Target Date:{' '}
-              {profile.targetRaceDate}
+              {weeks.length > 0 ? (
+                <>
+                  Goal:{' '}
+                  <span className="text-white font-semibold">
+                    {profile.goalLabel}
+                  </span>{' '}
+                  • {profile.daysPerWeek} runs/week • Target Date:{' '}
+                  {profile.targetRaceDate}
+                </>
+              ) : (
+                <span>No training plan created yet • Start the goal quiz to generate your plan</span>
+              )}
             </p>
           </div>
         </div>
@@ -104,18 +110,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             className="px-4 py-2.5 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 transition cursor-pointer"
           >
             <Settings className="w-4 h-4" />
-            Re-Run Onboarding Quiz
+            {weeks.length > 0 ? 'Re-Run Onboarding Quiz' : 'Create Training Plan'}
           </button>
 
-          <button
-            type="button"
-            onClick={onResetDefaultDemo}
-            className="px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-            title="Reset Demo Data"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Reset Plan
-          </button>
+          {weeks.length > 0 && (
+            <button
+              type="button"
+              onClick={onResetDefaultDemo}
+              className="px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+              title="Clear Plan & Workout Data"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Clear Plan
+            </button>
+          )}
         </div>
       </div>
 
@@ -129,7 +137,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-extrabold uppercase tracking-wider text-[#38BDF8]">
-                  Connected Wearable • Garmin Connect™
+                  Wearable Integration • Garmin Connect™
                 </span>
                 <span
                   className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
@@ -138,15 +146,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
-                  {garmin.connected ? 'Live Sync Active' : 'Paused'}
+                  {garmin.connected ? 'Live Sync Active' : 'Not Connected'}
                 </span>
               </div>
               <h2 className="text-lg font-black text-white mt-0.5">
-                Garmin {garmin.watchModel}
+                {garmin.connected
+                  ? `Garmin ${garmin.watchModel}`
+                  : 'No Garmin Watch Paired'}
               </h2>
               <p className="text-xs text-zinc-400 font-mono-tabular">
-                {garmin.pushedWorkoutIds.length} structured workouts pushed to
-                watch • Battery {garmin.batteryPct}%
+                {garmin.connected
+                  ? `${garmin.pushedWorkoutIds.length} structured workouts pushed to watch • Battery ${garmin.batteryPct}%`
+                  : 'Pair a Garmin watch to sync structured workouts & physiological biometrics'}
               </p>
             </div>
           </div>
@@ -156,62 +167,64 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             onClick={onOpenGarminModal}
             className="self-start sm:self-auto px-4 py-2.5 rounded-xl bg-[#38BDF8] hover:bg-[#0EA5E9] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer"
           >
-            Manage Garmin Sync
+            {garmin.connected ? 'Manage Garmin Sync' : 'Connect Garmin Watch'}
             <ArrowUpRight className="w-4 h-4 stroke-[2.5]" />
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-          <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
-            <span className="text-[10px] font-bold uppercase text-zinc-400">
-              Garmin VO2 Max
-            </span>
-            <div className="text-2xl font-black font-mono-tabular text-[#38BDF8] mt-1">
-              {garmin.biometrics.garminVo2Max}
+        {garmin.connected && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+            <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
+              <span className="text-[10px] font-bold uppercase text-zinc-400">
+                Garmin VO2 Max
+              </span>
+              <div className="text-2xl font-black font-mono-tabular text-[#38BDF8] mt-1">
+                {garmin.biometrics.garminVo2Max || '—'}
+              </div>
+              <span className="text-[11px] text-emerald-400 font-semibold">
+                Status: {garmin.biometrics.trainingStatus}
+              </span>
             </div>
-            <span className="text-[11px] text-emerald-400 font-semibold">
-              Status: {garmin.biometrics.trainingStatus}
-            </span>
-          </div>
 
-          <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
-            <span className="text-[10px] font-bold uppercase text-zinc-400">
-              Training Readiness
-            </span>
-            <div className="text-2xl font-black font-mono-tabular text-[#CCFF00] mt-1">
-              {garmin.biometrics.trainingReadinessScore}/100
+            <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
+              <span className="text-[10px] font-bold uppercase text-zinc-400">
+                Training Readiness
+              </span>
+              <div className="text-2xl font-black font-mono-tabular text-[#CCFF00] mt-1">
+                {garmin.biometrics.trainingReadinessScore}/100
+              </div>
+              <span className="text-[11px] text-zinc-400">
+                Sleep Score: {garmin.biometrics.sleepScore}
+              </span>
             </div>
-            <span className="text-[11px] text-zinc-400">
-              Sleep Score: {garmin.biometrics.sleepScore}
-            </span>
-          </div>
 
-          <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
-            <span className="text-[10px] font-bold uppercase text-zinc-400 flex items-center gap-1">
-              <Heart className="w-3 h-3 text-[#FF4D4D]" />
-              Overnight HRV
-            </span>
-            <div className="text-2xl font-black font-mono-tabular text-white mt-1">
-              {garmin.biometrics.hrvStatusMs} ms
+            <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
+              <span className="text-[10px] font-bold uppercase text-zinc-400 flex items-center gap-1">
+                <Heart className="w-3 h-3 text-[#FF4D4D]" />
+                Overnight HRV
+              </span>
+              <div className="text-2xl font-black font-mono-tabular text-white mt-1">
+                {garmin.biometrics.hrvStatusMs} ms
+              </div>
+              <span className="text-[11px] text-zinc-400">
+                Resting HR: {garmin.biometrics.restingHrBpm} bpm
+              </span>
             </div>
-            <span className="text-[11px] text-zinc-400">
-              Resting HR: {garmin.biometrics.restingHrBpm} bpm
-            </span>
-          </div>
 
-          <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
-            <span className="text-[10px] font-bold uppercase text-zinc-400 flex items-center gap-1">
-              <BatteryCharging className="w-3 h-3 text-emerald-400" />
-              Recovery Advisor
-            </span>
-            <div className="text-2xl font-black font-mono-tabular text-white mt-1">
-              {garmin.biometrics.recoveryTimeHours} hrs
+            <div className="p-3.5 rounded-2xl bg-black/35 border border-white/5">
+              <span className="text-[10px] font-bold uppercase text-zinc-400 flex items-center gap-1">
+                <BatteryCharging className="w-3 h-3 text-emerald-400" />
+                Recovery Advisor
+              </span>
+              <div className="text-2xl font-black font-mono-tabular text-white mt-1">
+                {garmin.biometrics.recoveryTimeHours} hrs
+              </div>
+              <span className="text-[11px] text-emerald-400">
+                Ready for key session
+              </span>
             </div>
-            <span className="text-[11px] text-emerald-400">
-              Ready for key session
-            </span>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Lifetime Stats Row */}

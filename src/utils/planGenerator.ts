@@ -504,9 +504,8 @@ export function generateTrainingPlan(profile: UserProfile): TrainingWeek[] {
       const estimatedDurationMin =
         wType === 'Rest' ? 0 : Math.round(rawDist * avgPaceMin);
 
-      // Only pre-complete past workouts if startDate is in the past
-      const isPreCompleted =
-        w === 1 && workoutIso < todayIso && wType !== 'Rest';
+      // Never pre-complete workouts on newly created user plans
+      const isPreCompleted = false;
       const actualPaceSec = Math.round(
         ((profile.current5kMinutes * 60) / 5) *
           (wType === 'Intervals' ? 0.97 : 1.25)

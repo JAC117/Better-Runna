@@ -26,7 +26,7 @@ import { downloadGarminWorkoutFile } from '../utils/garminUtils';
 
 interface GarminConnectModalProps {
   garmin: GarminIntegrationState;
-  currentWeek: TrainingWeek;
+  currentWeek: TrainingWeek | null;
   onClose: () => void;
   onUpdateGarmin: (updater: (prev: GarminIntegrationState) => GarminIntegrationState) => void;
   onPushWeekToGarmin: (weekNumber: number) => void;
@@ -52,12 +52,15 @@ export const GarminConnectModal: React.FC<GarminConnectModalProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
-  const activeWeekWorkouts = currentWeek.workouts.filter((w) => w.type !== 'Rest');
+  const activeWeekWorkouts = currentWeek
+    ? currentWeek.workouts.filter((w) => w.type !== 'Rest')
+    : [];
   const pushedInCurrentWeek = activeWeekWorkouts.filter((w) =>
     garmin.pushedWorkoutIds.includes(w.id)
   ).length;
 
   const handleManualSync = () => {
+    if (!currentWeek) return;
     setIsSyncing(true);
     setSyncNotice(null);
     setTimeout(() => {
@@ -70,11 +73,26 @@ export const GarminConnectModal: React.FC<GarminConnectModalProps> = ({
   };
 
   const handleToggleConnection = () => {
-    onUpdateGarmin((prev) => ({
-      ...prev,
-      connected: !prev.connected,
-      lastSyncedAt: new Date().toISOString(),
-    }));
+    onUpdateGarmin((prev) => {
+      const nextConnected = !prev.connected;
+      return {
+        ...prev,
+        connected: nextConnected,
+        lastSyncedAt: new Date().toISOString(),
+        biometrics:
+          nextConnected && prev.biometrics.garminVo2Max === 0
+            ? {
+                garminVo2Max: 50,
+                trainingStatus: 'Maintaining',
+                hrvStatusMs: 62,
+                restingHrBpm: 52,
+                trainingReadinessScore: 82,
+                sleepScore: 84,
+                recoveryTimeHours: 12,
+              }
+            : prev.biometrics,
+      };
+    });
   };
 
   return (
@@ -260,81 +278,91 @@ export const GarminConnectModal: React.FC<GarminConnectModalProps> = ({
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
                   <Send className="w-4 h-4 text-[#CCFF00]" />
-                  Week {currentWeek.weekNumber} Structured Workouts → Garmin Calendar
+                  {currentWeek
+                    ? `Week ${currentWeek.weekNumber} Structured Workouts → Garmin Calendar`
+                    : 'Structured Workouts → Garmin Calendar'}
                 </h3>
                 <p className="text-xs text-zinc-400 mt-0.5">
                   Pushes lap splits, interval countdowns, and real-time audio/wrist pace alerts directly to your watch.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleManualSync}
-                className="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer shrink-0"
-              >
-                <Send className="w-3.5 h-3.5" />
-                Push All ({pushedInCurrentWeek}/{activeWeekWorkouts.length} Synced)
-              </button>
+              {currentWeek && (
+                <button
+                  type="button"
+                  onClick={handleManualSync}
+                  className="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Push All ({pushedInCurrentWeek}/{activeWeekWorkouts.length} Synced)
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {activeWeekWorkouts.map((wo) => {
-                const isPushed = garmin.pushedWorkoutIds.includes(wo.id);
-                return (
-                  <div
-                    key={wo.id}
-                    className="p-3.5 rounded-2xl bg-[#11141D] border border-white/5 flex items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-mono-tabular font-bold text-[#38BDF8]">
-                          {wo.dayName} ({wo.dateStr})
-                        </span>
-                        <span className="text-[10px] font-mono-tabular text-zinc-400">
-                          • {wo.plannedDistanceKm}km
-                        </span>
+            {activeWeekWorkouts.length === 0 ? (
+              <div className="py-5 text-center text-xs text-zinc-500">
+                No scheduled training plan workouts yet. Create a training plan first to push structured workouts to your watch.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {activeWeekWorkouts.map((wo) => {
+                  const isPushed = garmin.pushedWorkoutIds.includes(wo.id);
+                  return (
+                    <div
+                      key={wo.id}
+                      className="p-3.5 rounded-2xl bg-[#11141D] border border-white/5 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-mono-tabular font-bold text-[#38BDF8]">
+                            {wo.dayName} ({wo.dateStr})
+                          </span>
+                          <span className="text-[10px] font-mono-tabular text-zinc-400">
+                            • {wo.plannedDistanceKm}km
+                          </span>
+                        </div>
+                        <div className="text-xs font-bold text-white truncate mt-0.5">
+                          {wo.title}
+                        </div>
+                        <div className="text-[10px] font-mono-tabular text-zinc-400 truncate">
+                          Target: {wo.targetPaceSummary}
+                        </div>
                       </div>
-                      <div className="text-xs font-bold text-white truncate mt-0.5">
-                        {wo.title}
-                      </div>
-                      <div className="text-[10px] font-mono-tabular text-zinc-400 truncate">
-                        Target: {wo.targetPaceSummary}
-                      </div>
-                    </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => downloadGarminWorkoutFile(wo, garmin.watchModel)}
-                        title="Export Garmin .TCX Structured Workout File"
-                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-
-                      {isPushed ? (
-                        <span className="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-extrabold uppercase flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          On Watch
-                        </span>
-                      ) : (
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() =>
-                            onUpdateGarmin((prev) => ({
-                              ...prev,
-                              pushedWorkoutIds: [...prev.pushedWorkoutIds, wo.id],
-                            }))
-                          }
-                          className="px-2.5 py-1.5 rounded-xl bg-[#38BDF8]/20 hover:bg-[#38BDF8]/30 text-[#38BDF8] text-[10px] font-extrabold uppercase transition cursor-pointer"
+                          onClick={() => downloadGarminWorkoutFile(wo, garmin.watchModel)}
+                          title="Export Garmin .TCX Structured Workout File"
+                          className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white transition cursor-pointer"
                         >
-                          Send
+                          <Download className="w-3.5 h-3.5" />
                         </button>
-                      )}
+
+                        {isPushed ? (
+                          <span className="px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-extrabold uppercase flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            On Watch
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateGarmin((prev) => ({
+                                ...prev,
+                                pushedWorkoutIds: [...prev.pushedWorkoutIds, wo.id],
+                              }))
+                            }
+                            className="px-2.5 py-1.5 rounded-xl bg-[#38BDF8]/20 hover:bg-[#38BDF8]/30 text-[#38BDF8] text-[10px] font-extrabold uppercase transition cursor-pointer"
+                          >
+                            Send
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Recent Recorded Garmin GPS Runs (1-Click Import into Runna Plan) */}
@@ -351,6 +379,11 @@ export const GarminConnectModal: React.FC<GarminConnectModalProps> = ({
               </div>
             </div>
 
+            {garmin.recentActivities.length === 0 ? (
+              <div className="py-5 text-center text-xs text-zinc-500">
+                No recorded Garmin Connect™ activities synced on this account yet.
+              </div>
+            ) : (
             <div className="space-y-2.5">
               {garmin.recentActivities.map((act) => (
                 <div
@@ -404,6 +437,7 @@ export const GarminConnectModal: React.FC<GarminConnectModalProps> = ({
                 </div>
               ))}
             </div>
+            )}
           </div>
 
           {/* Sync Preferences Toggles */}

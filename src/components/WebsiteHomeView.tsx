@@ -56,6 +56,88 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
   onOpenGarminModal,
 }) => {
   const todayIso = getLocalTodayIso();
+
+  if (weeks.length === 0) {
+    return (
+      <div className="space-y-12 pb-12">
+        <section className="pt-4 lg:pt-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          <div className="lg:col-span-7 space-y-6">
+            <div className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#CCFF00]">
+              New Athlete Account • Clean Slate
+            </div>
+            <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-white leading-[1.06]">
+              Welcome, {profile.name}. Let's build your training plan.
+            </h1>
+            <p className="text-base text-zinc-400 leading-relaxed max-w-xl">
+              Your account starts completely empty with zero pre-loaded workouts or wearable logs. Answer our 4-step calibration quiz to generate a personalized training plan synced to today's date (or your optional custom start date).
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                id="btn-empty-create-plan"
+                type="button"
+                onClick={onOpenOnboarding}
+                className="px-6 py-4 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-black text-xs uppercase tracking-wider flex items-center gap-2 transition cursor-pointer"
+              >
+                Create My Training Plan
+                <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+              </button>
+
+              <button
+                type="button"
+                onClick={onOpenGarminModal}
+                className="px-5 py-4 rounded-xl bg-[#151925] hover:bg-[#1C2232] border border-white/12 text-white font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 transition cursor-pointer"
+              >
+                <Watch className="w-4 h-4 text-sky-400" />
+                Connect Garmin Watch
+              </button>
+            </div>
+          </div>
+
+          <div className="lg:col-span-5 p-6 sm:p-8 rounded-3xl bg-[#12151F] border border-white/10 space-y-5">
+            <div className="text-xs font-extrabold uppercase tracking-wider text-zinc-400">
+              Account Summary
+            </div>
+            <div className="grid grid-cols-2 gap-3 font-mono-tabular">
+              <div className="p-4 rounded-2xl bg-[#0B0E15] border border-white/5">
+                <span className="text-[10px] uppercase text-zinc-500 block">
+                  Active Plan
+                </span>
+                <span className="text-lg font-black text-zinc-400 mt-1 block">
+                  None Yet
+                </span>
+              </div>
+              <div className="p-4 rounded-2xl bg-[#0B0E15] border border-white/5">
+                <span className="text-[10px] uppercase text-zinc-500 block">
+                  Logged Mileage
+                </span>
+                <span className="text-lg font-black text-white mt-1 block">
+                  0.0 km
+                </span>
+              </div>
+              <div className="p-4 rounded-2xl bg-[#0B0E15] border border-white/5">
+                <span className="text-[10px] uppercase text-zinc-500 block">
+                  Past Workouts
+                </span>
+                <span className="text-lg font-black text-white mt-1 block">
+                  0 Runs
+                </span>
+              </div>
+              <div className="p-4 rounded-2xl bg-[#0B0E15] border border-white/5">
+                <span className="text-[10px] uppercase text-zinc-500 block">
+                  Garmin Status
+                </span>
+                <span className="text-sm font-bold text-zinc-400 mt-1.5 block">
+                  {garmin.connected ? garmin.watchModel : 'Not Paired'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   const activeWeekNum = findActiveWeekForToday(weeks, todayIso);
   const currentWeek =
     weeks.find((w) => w.weekNumber === activeWeekNum) || weeks[0];
@@ -183,18 +265,26 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
                 Garmin Readiness
               </span>
               <span className="text-xl sm:text-2xl font-black font-mono-tabular text-white mt-0.5 block">
-                {garmin.biometrics.trainingReadinessScore}
-                <span className="text-xs font-normal text-emerald-400">
-                  /100 • VO2 {garmin.biometrics.garminVo2Max}
-                </span>
+                {garmin.connected ? (
+                  <>
+                    {garmin.biometrics.trainingReadinessScore}
+                    <span className="text-xs font-normal text-emerald-400">
+                      /100 • VO2 {garmin.biometrics.garminVo2Max}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm font-bold text-zinc-400">
+                    Connect Watch
+                  </span>
+                )}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Right Hero Column: Interactive Latest Workout GPS Map Showcase */}
+        {/* Right Hero Column: Latest Workout GPS Map OR Next Session Spotlight */}
         <div className="lg:col-span-6 space-y-3">
-          {latestMappedRun && (
+          {latestMappedRun ? (
             <>
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2 text-xs">
@@ -219,6 +309,41 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
 
               <WorkoutRouteMap workout={latestMappedRun} compact />
             </>
+          ) : (
+            <div className="p-7 rounded-3xl bg-[#12151F] border border-white/10 space-y-4">
+              <div className="w-11 h-11 rounded-2xl bg-[#CCFF00]/15 border border-[#CCFF00]/30 flex items-center justify-center text-[#CCFF00]">
+                <MapPin className="w-5 h-5" />
+              </div>
+              <div className="space-y-1.5">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-[#CCFF00]">
+                  Ready for Workout #1
+                </span>
+                <h3 className="text-xl font-black text-white">
+                  {nextWorkout ? nextWorkout.title : 'Your plan is calibrated'}
+                </h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Complete your first scheduled run or log a session in Run Studio to unlock interactive GPS route maps, pace heatmaps, and split breakdowns here.
+                </p>
+              </div>
+              {nextWorkout && (
+                <div className="flex items-center gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => onSelectWorkout(nextWorkout)}
+                    className="px-4 py-2.5 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Inspect Session Breakdown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onLaunchLiveTracker(nextWorkout)}
+                    className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+                  >
+                    Open Live Tracker
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </section>
@@ -349,11 +474,21 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
             onClick={() => onNavigate('history')}
             className="self-start sm:self-auto px-5 py-2.5 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 transition cursor-pointer"
           >
-            Explore All {pastWorkouts.length} Mapped Workouts
+            Explore Past Workouts ({pastWorkouts.length})
             <ArrowRight className="w-4 h-4 stroke-[2.5]" />
           </button>
         </div>
 
+        {pastWorkouts.length === 0 ? (
+          <div className="p-8 rounded-3xl bg-[#12151F] border border-white/10 text-center space-y-2">
+            <p className="text-sm font-bold text-white">
+              No Completed Workouts Yet
+            </p>
+            <p className="text-xs text-zinc-400">
+              Mark any scheduled workout as completed to generate its interactive GPS route map and split telemetry.
+            </p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {pastWorkouts.slice(0, 3).map((run) => {
             const pts = run.gpsTrack;
@@ -451,6 +586,7 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
             );
           })}
         </div>
+        )}
       </section>
 
       {/* SECTION 4: RACE PREDICTIONS & PERSONALIZED TRAINING ZONES */}

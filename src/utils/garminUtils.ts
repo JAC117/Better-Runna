@@ -6,6 +6,37 @@ import type {
 } from '../types';
 import { formatSecondsToPace } from './planGenerator';
 
+export function createEmptyGarminState(
+  athleteName: string = 'Runner'
+): GarminIntegrationState {
+  return {
+    connected: false,
+    watchModel: 'Forerunner 265',
+    athleteAccount: `${athleteName
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '.')}@garmin.connect`,
+    batteryPct: 100,
+    firmwareVersion: 'v21.19 Multi-Band GNSS',
+    autoPushWorkouts: true,
+    autoImportActivities: true,
+    paceTargetAlerts: true,
+    hrZoneGuidance: true,
+    lastSyncedAt: new Date().toISOString(),
+    pushedWorkoutIds: [],
+    biometrics: {
+      garminVo2Max: 0,
+      trainingStatus: 'Maintaining',
+      hrvStatusMs: 0,
+      restingHrBpm: 0,
+      trainingReadinessScore: 0,
+      sleepScore: 0,
+      recoveryTimeHours: 0,
+    },
+    recentActivities: [],
+  };
+}
+
 export function createInitialGarminState(
   profile: UserProfile,
   weeks: TrainingWeek[]

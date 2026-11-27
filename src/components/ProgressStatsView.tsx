@@ -145,6 +145,11 @@ export const ProgressStatsView: React.FC<ProgressStatsViewProps> = ({
           </div>
         </div>
 
+        {weeks.length === 0 ? (
+          <div className="py-10 text-center text-xs text-zinc-500">
+            No training plan created yet. Complete the goal quiz to generate your weekly volume curve.
+          </div>
+        ) : (
         <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-12 gap-3 items-end pt-4 h-52">
           {weeks.map((wk) => {
             const loggedInWeek = wk.workouts
@@ -187,6 +192,7 @@ export const ProgressStatsView: React.FC<ProgressStatsViewProps> = ({
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Race Time Predictions & Pace Zones Grid */}

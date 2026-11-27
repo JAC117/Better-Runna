@@ -54,6 +54,35 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
   onUpdateStartDate,
 }) => {
   const todayIso = getLocalTodayIso();
+
+  if (weeks.length === 0) {
+    return (
+      <div className="p-10 sm:p-14 rounded-3xl bg-[#12151F] border border-white/10 text-center space-y-4">
+        <div className="w-14 h-14 rounded-2xl bg-[#CCFF00]/15 border border-[#CCFF00]/30 flex items-center justify-center text-[#CCFF00] mx-auto">
+          <Calendar className="w-7 h-7" />
+        </div>
+        <div className="space-y-1.5 max-w-lg mx-auto">
+          <h1 className="text-2xl sm:text-3xl font-black text-white">
+            No Active Training Plan Yet
+          </h1>
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            Set your race goal, current 5K benchmark, weekly schedule, and start date (synced to today or an optional custom date) to generate your structured training plan.
+          </p>
+        </div>
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={onOpenOnboarding}
+            className="px-6 py-3.5 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-black text-xs uppercase tracking-wider inline-flex items-center gap-2 transition cursor-pointer"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Create My Training Plan
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const effectiveStartIso =
     profile.customStartDate ||
     profile.startDate ||

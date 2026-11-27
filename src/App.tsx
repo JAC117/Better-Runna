@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Calendar,
   Timer,
@@ -11,8 +11,10 @@ import {
   Menu,
   X,
   Database,
+  LogOut,
 } from 'lucide-react';
 import type {
+  AuthUser,
   GarminActivityFeedItem,
   GarminIntegrationState,
   LoggedRunData,
@@ -29,13 +31,20 @@ import {
   getLocalTodayIso,
   rebuildPlanPreservingLogs,
 } from './utils/planGenerator';
-import { createInitialGarminState } from './utils/garminUtils';
+import {
+  createEmptyGarminState,
+  createInitialGarminState,
+} from './utils/garminUtils';
 import { buildPastWorkoutsList } from './utils/gpsRouteGenerator';
 import {
+  clearUserStateInDb,
   fetchBootstrapState,
+  fetchCurrentUser,
   fetchDbHealth,
+  logoutAccount,
   saveFullStateToDb,
 } from './utils/apiClient';
+import { AuthPage } from './components/AuthPage';
 import { WebsiteHomeView } from './components/WebsiteHomeView';
 import { PlanDashboardView } from './components/PlanDashboardView';
 import { PastWorkoutsSection } from './components/PastWorkoutsSection';
@@ -47,10 +56,6 @@ import { WorkoutDetailModal } from './components/WorkoutDetailModal';
 import { GarminConnectModal } from './components/GarminConnectModal';
 import { DatabaseStatusModal } from './components/DatabaseStatusModal';
 
-const STORAGE_KEY_PROFILE = 'runna_coach_user_profile_v1';
-const STORAGE_KEY_PLAN = 'runna_coach_training_plan_v1';
-const STORAGE_KEY_GARMIN = 'runna_coach_garmin_state_v1';
-
 export type WebsitePage =
   | 'overview'
   | 'plan'
@@ -59,66 +64,40 @@ export type WebsitePage =
   | 'progress'
   | 'profile';
 
+function createBlankUserProfile(userName: string): UserProfile {
+  const todayIso = getLocalTodayIso();
+  return {
+    name: userName,
+    goal: '10K',
+    intent: 'improve',
+    goalLabel: 'Run a 10K',
+    current5kMinutes: 25.0,
+    daysPerWeek: 4,
+    startDate: todayIso,
+    customStartDate: undefined,
+    targetRaceDate: addDaysIso(todayIso, 8 * 7 - 1),
+    planWeeks: 8,
+    currentWeek: 1,
+    createdAt: new Date().toISOString(),
+    unit: 'km',
+  };
+}
+
 export function App() {
-  const [profile, setProfile] = useState<UserProfile>(() => {
-    const todayIso = getLocalTodayIso();
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_PROFILE);
-      if (saved) {
-        const parsed = JSON.parse(saved) as UserProfile;
-        if (!parsed.customStartDate) {
-          return {
-            ...parsed,
-            startDate: todayIso,
-            targetRaceDate: addDaysIso(todayIso, (parsed.planWeeks || 8) * 7 - 1),
-          };
-        }
-        return { ...parsed, startDate: parsed.customStartDate };
-      }
-      return createDefaultProfileForToday();
-    } catch {
-      return createDefaultProfileForToday();
-    }
-  });
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
 
-  const [weeks, setWeeks] = useState<TrainingWeek[]>(() => {
-    const todayIso = getLocalTodayIso();
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_PLAN);
-      if (saved) {
-        const parsed = JSON.parse(saved) as TrainingWeek[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const expectedStart = profile.customStartDate || todayIso;
-          if (parsed[0]?.workouts[0]?.isoDate === expectedStart) {
-            return parsed;
-          }
-          return rebuildPlanPreservingLogs(parsed, profile);
-        }
-      }
-      return generateTrainingPlan(profile);
-    } catch {
-      return generateTrainingPlan(profile);
-    }
-  });
-
-  const [garmin, setGarmin] = useState<GarminIntegrationState>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_GARMIN);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.watchModel) return parsed;
-      }
-      return createInitialGarminState(profile, weeks);
-    } catch {
-      return createInitialGarminState(profile, weeks);
-    }
-  });
+  const [profile, setProfile] = useState<UserProfile>(() =>
+    createBlankUserProfile('Runner')
+  );
+  const [weeks, setWeeks] = useState<TrainingWeek[]>([]);
+  const [garmin, setGarmin] = useState<GarminIntegrationState>(() =>
+    createEmptyGarminState('Runner')
+  );
 
   const [activePage, setActivePage] = useState<WebsitePage>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
-  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number>(() =>
-    findActiveWeekForToday(weeks)
-  );
+  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number>(1);
   const [selectedWorkout, setSelectedWorkout] =
     useState<ScheduledWorkout | null>(null);
   const [trackerTargetWorkout, setTrackerTargetWorkout] =
@@ -132,105 +111,124 @@ export function App() {
     'connecting' | 'synced' | 'saving' | 'offline'
   >('connecting');
   const [dbLatencyMs, setDbLatencyMs] = useState<number | null>(null);
-  const hydratedFromBackendRef = useRef<boolean>(false);
+  const hydratedUserRef = useRef<boolean>(false);
   const skipNextAutoSaveRef = useRef<boolean>(false);
 
-  // Hydrate from PostgreSQL Backend on mount (and sync start date to Today unless customStartDate is set)
+  const hydrateWorkspaceForUser = useCallback(async (user: AuthUser) => {
+    hydratedUserRef.current = false;
+    const todayIso = getLocalTodayIso();
+
+    const [bootstrap, health] = await Promise.all([
+      fetchBootstrapState(),
+      fetchDbHealth(),
+    ]);
+
+    if (health?.status === 'ok') {
+      setDbLatencyMs(health.latencyMs ?? null);
+    }
+
+    if (!bootstrap) {
+      setProfile(createBlankUserProfile(user.name));
+      setWeeks([]);
+      setGarmin(createEmptyGarminState(user.name));
+      setDbStatus('offline');
+      hydratedUserRef.current = true;
+      return;
+    }
+
+    // Brand-new or empty user account: NO pre-populated plan, NO workouts, NO Garmin data!
+    if (!bootstrap.initialized || !bootstrap.hasPlan || !bootstrap.profile || !bootstrap.weeks?.length) {
+      skipNextAutoSaveRef.current = true;
+      setProfile(createBlankUserProfile(user.name));
+      setWeeks([]);
+      setGarmin(bootstrap.garmin || createEmptyGarminState(user.name));
+      setSelectedWeekNumber(1);
+      setDbStatus('synced');
+      hydratedUserRef.current = true;
+      return;
+    }
+
+    // Returning user with an existing saved training plan
+    const dbProf = bootstrap.profile;
+    const hasCustom = Boolean(dbProf.customStartDate?.trim());
+    const expectedStart = hasCustom ? dbProf.customStartDate! : todayIso;
+    const firstWorkoutIso = bootstrap.weeks[0]?.workouts[0]?.isoDate;
+
+    if (
+      !hasCustom &&
+      (dbProf.startDate !== todayIso || firstWorkoutIso !== expectedStart)
+    ) {
+      const syncedProfile: UserProfile = {
+        ...dbProf,
+        startDate: todayIso,
+        customStartDate: undefined,
+        targetRaceDate: addDaysIso(todayIso, (dbProf.planWeeks || 8) * 7 - 1),
+      };
+      const syncedWeeks = rebuildPlanPreservingLogs(
+        bootstrap.weeks,
+        syncedProfile
+      );
+      setProfile(syncedProfile);
+      setWeeks(syncedWeeks);
+      setSelectedWeekNumber(findActiveWeekForToday(syncedWeeks, todayIso));
+      setGarmin(bootstrap.garmin || createEmptyGarminState(user.name));
+      setDbStatus('synced');
+    } else {
+      skipNextAutoSaveRef.current = true;
+      setProfile({ ...dbProf, startDate: expectedStart });
+      setWeeks(bootstrap.weeks);
+      setSelectedWeekNumber(findActiveWeekForToday(bootstrap.weeks, todayIso));
+      setGarmin(bootstrap.garmin || createEmptyGarminState(user.name));
+      setDbStatus('synced');
+    }
+
+    hydratedUserRef.current = true;
+  }, []);
+
+  // Check existing session token on initial page load
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const todayIso = getLocalTodayIso();
-      const [bootstrap, health] = await Promise.all([
-        fetchBootstrapState(),
+      const [me, health] = await Promise.all([
+        fetchCurrentUser(),
         fetchDbHealth(),
       ]);
       if (cancelled) return;
 
       if (health?.status === 'ok') {
         setDbLatencyMs(health.latencyMs ?? null);
+        setDbStatus('synced');
       }
 
-      if (!bootstrap) {
-        setDbStatus('offline');
-        hydratedFromBackendRef.current = true;
-        return;
+      if (me) {
+        setCurrentUser(me);
+        await hydrateWorkspaceForUser(me);
       }
-
-      if (bootstrap.initialized && bootstrap.profile && bootstrap.weeks?.length) {
-        const dbProf = bootstrap.profile;
-        const hasCustom = Boolean(dbProf.customStartDate?.trim());
-        const expectedStart = hasCustom ? dbProf.customStartDate! : todayIso;
-        const firstWorkoutIso = bootstrap.weeks[0]?.workouts[0]?.isoDate;
-
-        if (!hasCustom && (dbProf.startDate !== todayIso || firstWorkoutIso !== expectedStart)) {
-          // Auto-sync training plan start date to Today's current date and save back to PostgreSQL
-          const syncedProfile: UserProfile = {
-            ...dbProf,
-            startDate: todayIso,
-            customStartDate: undefined,
-            targetRaceDate: addDaysIso(todayIso, (dbProf.planWeeks || 8) * 7 - 1),
-          };
-          const syncedWeeks = rebuildPlanPreservingLogs(
-            bootstrap.weeks,
-            syncedProfile
-          );
-          setProfile(syncedProfile);
-          setWeeks(syncedWeeks);
-          setSelectedWeekNumber(findActiveWeekForToday(syncedWeeks, todayIso));
-          if (bootstrap.garmin) {
-            setGarmin(bootstrap.garmin);
-          }
-          setDbStatus('synced');
-        } else {
-          skipNextAutoSaveRef.current = true;
-          const hydratedProf: UserProfile = {
-            ...dbProf,
-            startDate: expectedStart,
-          };
-          setProfile(hydratedProf);
-          setWeeks(bootstrap.weeks);
-          setSelectedWeekNumber(
-            findActiveWeekForToday(bootstrap.weeks, todayIso)
-          );
-          if (bootstrap.garmin) {
-            setGarmin(bootstrap.garmin);
-          }
-          setDbStatus('synced');
-        }
-      } else {
-        // First boot on fresh PostgreSQL volume: seed current state into PostgreSQL
-        const seeded = await saveFullStateToDb({ profile, weeks, garmin });
-        setDbStatus(seeded ? 'synced' : 'offline');
-      }
-
-      hydratedFromBackendRef.current = true;
+      setAuthChecking(false);
     })();
 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hydrateWorkspaceForUser]);
 
-  // Persist changes to both PostgreSQL backend and local cache
+  // Auto-save authenticated user's changes to PostgreSQL
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(profile));
-      localStorage.setItem(STORAGE_KEY_PLAN, JSON.stringify(weeks));
-      localStorage.setItem(STORAGE_KEY_GARMIN, JSON.stringify(garmin));
-    } catch {
-      // ignore local storage errors
-    }
-
-    if (!hydratedFromBackendRef.current) return;
+    if (!currentUser || !hydratedUserRef.current) return;
     if (skipNextAutoSaveRef.current) {
       skipNextAutoSaveRef.current = false;
       return;
     }
+    // Don't write empty profile/weeks unless user created a plan or connected Garmin
+    if (weeks.length === 0 && !garmin.connected) return;
 
     setDbStatus('saving');
     const timer = setTimeout(async () => {
-      const ok = await saveFullStateToDb({ profile, weeks, garmin });
+      const ok = await saveFullStateToDb({
+        profile: weeks.length > 0 ? profile : null,
+        weeks,
+        garmin,
+      });
       if (ok) {
         const health = await fetchDbHealth();
         if (health?.latencyMs !== undefined) {
@@ -243,7 +241,26 @@ export function App() {
     }, 220);
 
     return () => clearTimeout(timer);
-  }, [profile, weeks, garmin]);
+  }, [currentUser, profile, weeks, garmin]);
+
+  const handleAuthenticated = async (
+    user: AuthUser,
+    _isNewRegistration: boolean
+  ) => {
+    setCurrentUser(user);
+    setActivePage('overview');
+    await hydrateWorkspaceForUser(user);
+  };
+
+  const handleSignOut = async () => {
+    hydratedUserRef.current = false;
+    await logoutAccount();
+    setCurrentUser(null);
+    setWeeks([]);
+    setSelectedWorkout(null);
+    setTrackerTargetWorkout(null);
+    setActivePage('overview');
+  };
 
   const navigateTo = (page: WebsitePage) => {
     setActivePage(page);
@@ -251,10 +268,16 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Build unified Past Workouts + GPS Routes list
+  // Build Past Workouts list — ONLY include sample demo history for the demo user!
   const pastWorkouts = useMemo(
-    () => buildPastWorkoutsList(weeks, profile, garmin.watchModel),
-    [weeks, profile, garmin.watchModel]
+    () =>
+      buildPastWorkoutsList(
+        weeks,
+        profile,
+        garmin.watchModel,
+        Boolean(currentUser?.isDemo)
+      ),
+    [weeks, profile, garmin.watchModel, currentUser?.isDemo]
   );
 
   const handleCompleteOnboarding = (newProfile: UserProfile) => {
@@ -265,16 +288,19 @@ export function App() {
       startDate: effectiveStart,
       customStartDate: newProfile.customStartDate?.trim() || undefined,
     };
-    setProfile(normalizedProfile);
     const freshPlan = generateTrainingPlan(normalizedProfile);
+    setProfile(normalizedProfile);
     setWeeks(freshPlan);
-    setGarmin(createInitialGarminState(normalizedProfile, freshPlan));
+    if (currentUser?.isDemo) {
+      setGarmin(createInitialGarminState(normalizedProfile, freshPlan));
+    }
     setSelectedWeekNumber(findActiveWeekForToday(freshPlan, todayIso));
     setIsOnboardingOpen(false);
     navigateTo('plan');
   };
 
   const handleUpdateStartDate = (customStartIso?: string) => {
+    if (weeks.length === 0) return;
     const todayIso = getLocalTodayIso();
     const trimmedCustom = customStartIso?.trim() || undefined;
     const effectiveStart = trimmedCustom || todayIso;
@@ -428,52 +454,89 @@ export function App() {
     const updatedProfile = { ...profile, current5kMinutes: new5kMinutes };
     setProfile(updatedProfile);
 
-    const freshPlan = generateTrainingPlan(updatedProfile);
-    setWeeks((oldWeeks) =>
-      freshPlan.map((newWk, wIdx) => {
-        const oldWk = oldWeeks[wIdx];
-        if (!oldWk) return newWk;
-        return {
-          ...newWk,
-          workouts: newWk.workouts.map((newWo, dIdx) => {
-            const oldWo = oldWk.workouts[dIdx];
-            if (oldWo && oldWo.completed) {
-              return {
-                ...newWo,
-                completed: true,
-                loggedData: oldWo.loggedData,
-              };
-            }
-            return newWo;
-          }),
-        };
-      })
+    if (weeks.length > 0) {
+      const freshPlan = generateTrainingPlan(updatedProfile);
+      setWeeks((oldWeeks) =>
+        freshPlan.map((newWk, wIdx) => {
+          const oldWk = oldWeeks[wIdx];
+          if (!oldWk) return newWk;
+          return {
+            ...newWk,
+            workouts: newWk.workouts.map((newWo, dIdx) => {
+              const oldWo = oldWk.workouts[dIdx];
+              if (oldWo && oldWo.completed) {
+                return {
+                  ...newWo,
+                  completed: true,
+                  loggedData: oldWo.loggedData,
+                };
+              }
+              return newWo;
+            }),
+          };
+        })
+      );
+    }
+
+    if (garmin.connected) {
+      setGarmin((prev) => ({
+        ...prev,
+        biometrics: {
+          ...prev.biometrics,
+          garminVo2Max: Math.round(
+            Math.max(42, Math.min(72, 82 - new5kMinutes * 1.15))
+          ),
+        },
+      }));
+    }
+  };
+
+  const handleResetPlanData = async () => {
+    if (!currentUser) return;
+    if (currentUser.isDemo) {
+      const todayProfile = createDefaultProfileForToday();
+      const freshWeeks = generateTrainingPlan(todayProfile);
+      setProfile(todayProfile);
+      setWeeks(freshWeeks);
+      setGarmin(createInitialGarminState(todayProfile, freshWeeks));
+      setSelectedWeekNumber(1);
+    } else {
+      skipNextAutoSaveRef.current = true;
+      await clearUserStateInDb();
+      setProfile(createBlankUserProfile(currentUser.name));
+      setWeeks([]);
+      setGarmin(createEmptyGarminState(currentUser.name));
+      setSelectedWeekNumber(1);
+    }
+  };
+
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-[#090A0D] text-white flex items-center justify-center">
+        <div className="flex items-center gap-3 text-sm font-bold text-zinc-400">
+          <div className="w-8 h-8 rounded-xl bg-[#CCFF00] text-black font-black flex items-center justify-center">
+            R
+          </div>
+          <span>Connecting to Runna PostgreSQL...</span>
+        </div>
+      </div>
     );
+  }
 
-    setGarmin((prev) => ({
-      ...prev,
-      biometrics: {
-        ...prev.biometrics,
-        garminVo2Max: Math.round(
-          Math.max(42, Math.min(72, 82 - new5kMinutes * 1.15))
-        ),
-      },
-    }));
-  };
-
-  const handleResetDefaultDemo = () => {
-    const todayProfile = createDefaultProfileForToday();
-    const freshWeeks = generateTrainingPlan(todayProfile);
-    setProfile(todayProfile);
-    setWeeks(freshWeeks);
-    setGarmin(createInitialGarminState(todayProfile, freshWeeks));
-    setSelectedWeekNumber(1);
-  };
+  // Gate unauthenticated visitors with the Multi-User Sign In / Create Account Page
+  if (!currentUser) {
+    return (
+      <AuthPage
+        dbLatencyMs={dbLatencyMs}
+        onAuthenticated={handleAuthenticated}
+      />
+    );
+  }
 
   const allWorkouts = weeks.flatMap((w) => w.workouts);
   const fiveKPaceStr = formatSecondsToPace((profile.current5kMinutes * 60) / 5);
   const currentWeekObj =
-    weeks.find((w) => w.weekNumber === selectedWeekNumber) || weeks[0];
+    weeks.find((w) => w.weekNumber === selectedWeekNumber) || weeks[0] || null;
 
   const navLinks: {
     id: WebsitePage;
@@ -493,6 +556,13 @@ export function App() {
     { id: 'progress', label: 'Analytics', icon: TrendingUp },
     { id: 'profile', label: 'Athlete & Garmin', icon: User },
   ];
+
+  const userInitials = currentUser.name
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <div className="min-h-screen bg-[#090A0D] text-white flex flex-col">
@@ -556,7 +626,7 @@ export function App() {
             })}
           </nav>
 
-          {/* Right Header Actions: PostgreSQL Status + Garmin Status + Plan CTA */}
+          {/* Right Header Actions: DB + Garmin + User Account & Sign Out */}
           <div className="flex items-center gap-2">
             {/* Live PostgreSQL Database Badge */}
             <button
@@ -571,12 +641,8 @@ export function App() {
               title="Inspect Docker & PostgreSQL Database Backend"
             >
               <Database className="w-3.5 h-3.5" />
-              <span className="hidden md:inline font-mono-tabular">
-                {dbStatus === 'saving'
-                  ? 'Saving SQL...'
-                  : dbStatus === 'synced'
-                  ? `Postgres${dbLatencyMs != null ? ` ${Math.round(dbLatencyMs)}ms` : ''}`
-                  : 'DB Local'}
+              <span className="hidden lg:inline font-mono-tabular">
+                {dbStatus === 'saving' ? 'Saving...' : 'Postgres'}
               </span>
             </button>
 
@@ -593,7 +659,7 @@ export function App() {
               title="Garmin Connect™ Sync & Watch Settings"
             >
               <Watch className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">
+              <span className="hidden md:inline">
                 {garmin.connected
                   ? garmin.watchModel.replace('Forerunner ', 'FR ')
                   : 'Garmin'}
@@ -605,15 +671,43 @@ export function App() {
               />
             </button>
 
+            {/* Plan Builder CTA */}
             <button
               id="btn-header-onboarding"
               type="button"
               onClick={() => setIsOnboardingOpen(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider transition cursor-pointer"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider transition cursor-pointer"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Customize Plan</span>
+              <span>{weeks.length > 0 ? 'Customize' : 'Create Plan'}</span>
             </button>
+
+            {/* Signed-In User Chip + Sign Out Button */}
+            <div className="hidden sm:flex items-center gap-1.5 pl-1 border-l border-white/10">
+              <button
+                type="button"
+                onClick={() => navigateTo('profile')}
+                className="px-2.5 py-1.5 rounded-xl bg-[#141720] hover:bg-[#1C212E] border border-white/10 flex items-center gap-2 text-xs font-bold text-white transition cursor-pointer"
+                title={`Signed in as ${currentUser.email}`}
+              >
+                <span className="w-5 h-5 rounded-md bg-[#CCFF00] text-black font-black text-[10px] flex items-center justify-center">
+                  {userInitials}
+                </span>
+                <span className="max-w-[90px] truncate hidden md:inline">
+                  {currentUser.name.split(' ')[0]}
+                </span>
+              </button>
+
+              <button
+                id="btn-sign-out"
+                type="button"
+                onClick={handleSignOut}
+                className="p-2 rounded-xl bg-[#141720] hover:bg-[#FF4D4D]/15 border border-white/10 hover:border-[#FF4D4D]/40 text-zinc-400 hover:text-[#FF4D4D] transition cursor-pointer"
+                title="Sign Out / Switch Account"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
 
             {/* Responsive Drawer Toggle for smaller viewports */}
             <button
@@ -635,6 +729,20 @@ export function App() {
         {/* Collapsible Website Navigation Drawer */}
         {mobileMenuOpen && (
           <div className="xl:hidden border-t border-white/10 bg-[#0D1017] px-4 py-4 space-y-3">
+            <div className="flex items-center justify-between px-1 pb-2 border-b border-white/8 text-xs">
+              <span className="text-zinc-300 font-bold">
+                Signed in as <strong className="text-white">{currentUser.name}</strong> ({currentUser.email})
+              </span>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="text-[#FF4D4D] font-extrabold uppercase flex items-center gap-1 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign Out
+              </button>
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {navLinks.map((item) => {
                 const Icon = item.icon;
@@ -666,7 +774,7 @@ export function App() {
               className="w-full py-3 rounded-xl bg-white/10 text-white font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2"
             >
               <SlidersHorizontal className="w-3.5 h-3.5 text-[#CCFF00]" />
-              Customize Goal & Onboarding Quiz
+              {weeks.length > 0 ? 'Customize Training Plan' : 'Create Training Plan'}
             </button>
           </div>
         )}
@@ -707,7 +815,9 @@ export function App() {
         {activePage === 'history' && (
           <PastWorkoutsSection
             pastWorkouts={pastWorkouts}
-            onGoToLogger={() => navigateTo('track')}
+            onGoToLogger={() =>
+              navigateTo(weeks.length > 0 ? 'track' : 'plan')
+            }
           />
         )}
 
@@ -726,6 +836,7 @@ export function App() {
             onSelectWorkout={(wo) => setTrackerTargetWorkout(wo)}
             onSaveTrackedRun={handleLogWorkoutComplete}
             onImportGarminActivity={handleImportGarminActivity}
+            onOpenOnboarding={() => setIsOnboardingOpen(true)}
           />
         )}
 
@@ -745,7 +856,7 @@ export function App() {
             onOpenOnboarding={() => setIsOnboardingOpen(true)}
             onOpenGarminModal={() => setIsGarminModalOpen(true)}
             onQuickRecalibrate5k={handleQuickRecalibrate5k}
-            onResetDefaultDemo={handleResetDefaultDemo}
+            onResetDefaultDemo={handleResetPlanData}
           />
         )}
       </main>
@@ -763,7 +874,7 @@ export function App() {
               </span>
             </div>
             <p className="text-zinc-400 leading-relaxed">
-              Full-stack adaptive running platform hosted on Docker with PostgreSQL 16 persistence, Garmin Connect™ wearable sync, and GPS route telemetry.
+              Multi-user adaptive running platform hosted on Docker with isolated PostgreSQL 16 accounts, Garmin Connect™ sync, and GPS route telemetry.
             </p>
           </div>
 
@@ -787,7 +898,7 @@ export function App() {
                   onClick={() => navigateTo('plan')}
                   className="hover:text-[#CCFF00] transition cursor-pointer"
                 >
-                  Weekly Training Plan ({profile.planWeeks} Weeks)
+                  Weekly Training Plan
                 </button>
               </li>
               <li>
@@ -813,31 +924,37 @@ export function App() {
 
           <div className="space-y-2.5">
             <h4 className="font-extrabold uppercase tracking-wider text-white">
-              Active Calibration
+              Signed-In Athlete
             </h4>
             <ul className="space-y-2 text-zinc-400 font-mono-tabular">
-              <li>Goal: {profile.goalLabel}</li>
-              <li>5K Pace Benchmark: {fiveKPaceStr}/km</li>
-              <li>
-                Start Date: {profile.customStartDate || profile.startDate} (
-                {profile.customStartDate ? 'Custom' : 'Synced Today'})
-              </li>
-              <li>Race Date: {profile.targetRaceDate}</li>
+              <li>Account: {currentUser.email}</li>
+              {weeks.length > 0 ? (
+                <>
+                  <li>Goal: {profile.goalLabel}</li>
+                  <li>5K Pace: {fiveKPaceStr}/km</li>
+                  <li>
+                    Start: {profile.customStartDate || profile.startDate} (
+                    {profile.customStartDate ? 'Custom' : 'Today'})
+                  </li>
+                </>
+              ) : (
+                <li>Plan: Not created yet (0 workouts)</li>
+              )}
             </ul>
           </div>
 
           <div className="space-y-2.5">
             <h4 className="font-extrabold uppercase tracking-wider text-white">
-              Docker & PostgreSQL Stack
+              Session & Stack
             </h4>
             <p className="text-zinc-400">
-              Status:{' '}
+              DB:{' '}
               <span className="text-emerald-400 font-semibold">
                 {dbStatus === 'synced'
                   ? 'PostgreSQL 16 Connected'
                   : dbStatus === 'saving'
                   ? 'Writing Transaction...'
-                  : 'Local Fallback'}
+                  : 'Offline'}
               </span>
             </p>
             <div className="flex flex-wrap gap-2 pt-1">
@@ -847,15 +964,15 @@ export function App() {
                 className="px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-400 font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
               >
                 <Database className="w-3.5 h-3.5" />
-                Inspect SQL DB
+                SQL DB
               </button>
               <button
                 type="button"
-                onClick={() => setIsGarminModalOpen(true)}
-                className="px-3 py-2 rounded-xl bg-[#0F172A] hover:bg-[#16223D] border border-[#38BDF8]/40 text-[#38BDF8] font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                onClick={handleSignOut}
+                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-[#FF4D4D]/15 border border-white/10 hover:border-[#FF4D4D]/40 text-zinc-300 hover:text-[#FF4D4D] font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
               >
-                <Watch className="w-3.5 h-3.5" />
-                Garmin
+                <LogOut className="w-3.5 h-3.5" />
+                Sign Out
               </button>
             </div>
           </div>

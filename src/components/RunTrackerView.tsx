@@ -38,6 +38,7 @@ interface RunTrackerViewProps {
     activity: GarminActivityFeedItem,
     targetWorkoutId?: string
   ) => void;
+  onOpenOnboarding?: () => void;
 }
 
 export const RunTrackerView: React.FC<RunTrackerViewProps> = ({
@@ -48,6 +49,7 @@ export const RunTrackerView: React.FC<RunTrackerViewProps> = ({
   onSelectWorkout,
   onSaveTrackedRun,
   onImportGarminActivity,
+  onOpenOnboarding,
 }) => {
   const zones = calculatePaceZones(profile.current5kMinutes);
   const defaultTargetPaceSec = Math.round((zones.tempo.min + zones.tempo.max) / 2);
@@ -224,6 +226,36 @@ export const RunTrackerView: React.FC<RunTrackerViewProps> = ({
 
   const targetPlannedKm = currentWorkout?.plannedDistanceKm || 5.0;
   const progressPct = Math.min(100, (distanceKm / targetPlannedKm) * 100);
+
+  if (availableWorkouts.filter((w) => w.type !== 'Rest').length === 0) {
+    return (
+      <div className="p-10 sm:p-14 rounded-3xl bg-[#12151F] border border-white/10 text-center space-y-4">
+        <div className="w-14 h-14 rounded-2xl bg-[#CCFF00]/15 border border-[#CCFF00]/30 flex items-center justify-center text-[#CCFF00] mx-auto">
+          <Timer className="w-7 h-7" />
+        </div>
+        <div className="space-y-1.5 max-w-lg mx-auto">
+          <h1 className="text-2xl sm:text-3xl font-black text-white">
+            Create a Plan Before Logging Sessions
+          </h1>
+          <p className="text-sm text-zinc-400 leading-relaxed">
+            Set up your personalized training plan first so Run Studio can link your live GPS splits and logged runs directly to your scheduled sessions.
+          </p>
+        </div>
+        {onOpenOnboarding && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onOpenOnboarding}
+              className="px-6 py-3.5 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-black text-xs uppercase tracking-wider inline-flex items-center gap-2 transition cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+              Create My Training Plan
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-8">

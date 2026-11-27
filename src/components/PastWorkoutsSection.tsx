@@ -62,7 +62,7 @@ export const PastWorkoutsSection: React.FC<PastWorkoutsSectionProps> = ({
     const allSplits = pastWorkouts.flatMap((r) =>
       r.splits.map((sp) => sp.paceSecPerKm)
     );
-    return allSplits.length > 0 ? Math.min(...allSplits) : 265;
+    return allSplits.length > 0 ? Math.min(...allSplits) : null;
   }, [pastWorkouts]);
 
   const getTypeBadge = (type: WorkoutType) => {
@@ -198,8 +198,14 @@ export const PastWorkoutsSection: React.FC<PastWorkoutsSectionProps> = ({
             <Trophy className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-2xl sm:text-3xl font-black font-mono-tabular text-[#CCFF00] mt-1.5">
-            {formatSecondsToPace(fastestKmPaceSec)}
-            <span className="text-sm font-normal text-zinc-400">/km</span>
+            {fastestKmPaceSec != null ? (
+              <>
+                {formatSecondsToPace(fastestKmPaceSec)}
+                <span className="text-sm font-normal text-zinc-400">/km</span>
+              </>
+            ) : (
+              <span className="text-zinc-500">—</span>
+            )}
           </div>
           <div className="text-xs text-zinc-500 mt-0.5">
             Peak interval split benchmark
@@ -207,6 +213,32 @@ export const PastWorkoutsSection: React.FC<PastWorkoutsSectionProps> = ({
         </div>
       </div>
 
+      {pastWorkouts.length === 0 ? (
+        <div className="p-10 sm:p-14 rounded-3xl bg-[#12151F] border border-white/10 text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-[#CCFF00]/10 border border-[#CCFF00]/30 flex items-center justify-center text-[#CCFF00] mx-auto">
+            <MapPin className="w-7 h-7" />
+          </div>
+          <div className="space-y-1.5 max-w-lg mx-auto">
+            <h2 className="text-xl sm:text-2xl font-black text-white">
+              No Past Workouts Logged Yet
+            </h2>
+            <p className="text-sm text-zinc-400 leading-relaxed">
+              Your account starts completely clean. Once you mark a scheduled plan workout as completed or log a run in Run Studio, its GPS route map, pace heatmap, and kilometer splits will appear here.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onGoToLogger}
+              className="px-6 py-3.5 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-black text-xs uppercase tracking-wider inline-flex items-center gap-2 transition cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+              Go to Training Plan / Run Studio
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Filter & Search Bar */}
       <div className="p-3 rounded-2xl bg-[#12151F] border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -588,6 +620,8 @@ export const PastWorkoutsSection: React.FC<PastWorkoutsSectionProps> = ({
           </div>
         )}
       </div>
+        </>
+      )}
     </section>
   );
 };

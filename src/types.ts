@@ -1,3 +1,10 @@
+export interface AuthUser {
+  id: number;
+  name: string;
+  email: string;
+  isDemo: boolean;
+}
+
 export type RaceGoal = '5K' | '10K' | 'Half Marathon' | 'Marathon' | 'General Fitness';
 
 export type GoalIntent = 'complete' | 'improve';
