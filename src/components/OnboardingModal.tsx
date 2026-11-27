@@ -8,9 +8,18 @@ import {
   Zap,
   Sparkles,
   Activity,
+  Calendar,
 } from 'lucide-react';
 import type { GoalIntent, RaceGoal, UserProfile } from '../types';
-import { calculatePaceZones, formatSecondsToPace } from '../utils/planGenerator';
+import {
+  addDaysIso,
+  calculatePaceZones,
+  formatIsoFull,
+  formatIsoShort,
+  formatSecondsToPace,
+  getLocalTodayIso,
+  getMondayWeekdayIndex,
+} from '../utils/planGenerator';
 
 interface OnboardingModalProps {
   initialProfile: UserProfile;
@@ -74,6 +83,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   onComplete,
   onCancel,
 }) => {
+  const todayIso = getLocalTodayIso();
+  const nextMondayDelta = ((7 - getMondayWeekdayIndex(todayIso)) % 7) || 7;
+  const nextMondayIso = addDaysIso(todayIso, nextMondayDelta);
+
   const [step, setStep] = useState<number>(1);
   const [name, setName] = useState(initialProfile.name || 'Alex Rivera');
   const [goal, setGoal] = useState<RaceGoal>(initialProfile.goal);
@@ -84,10 +97,35 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   const [daysPerWeek, setDaysPerWeek] = useState<3 | 4 | 5 | 6>(
     initialProfile.daysPerWeek
   );
-  const [targetRaceDate, setTargetRaceDate] = useState<string>(
-    initialProfile.targetRaceDate || '2027-01-17'
+  const [useCustomStart, setUseCustomStart] = useState<boolean>(
+    Boolean(initialProfile.customStartDate)
   );
-  const [planWeeks, setPlanWeeks] = useState<number>(initialProfile.planWeeks || 8);
+  const [customStartDate, setCustomStartDate] = useState<string>(
+    initialProfile.customStartDate || nextMondayIso
+  );
+  const [planWeeks, setPlanWeeks] = useState<number>(
+    initialProfile.planWeeks || 8
+  );
+
+  const effectiveStartDate = useCustomStart ? customStartDate : todayIso;
+  const [targetRaceDate, setTargetRaceDate] = useState<string>(
+    initialProfile.targetRaceDate ||
+      addDaysIso(effectiveStartDate, (initialProfile.planWeeks || 8) * 7 - 1)
+  );
+
+  const handleChangeStartMode = (customMode: boolean, overrideIso?: string) => {
+    setUseCustomStart(customMode);
+    const nextStart = customMode
+      ? overrideIso || customStartDate
+      : todayIso;
+    if (overrideIso) setCustomStartDate(overrideIso);
+    setTargetRaceDate(addDaysIso(nextStart, planWeeks * 7 - 1));
+  };
+
+  const handleChangePlanWeeks = (weeksVal: number) => {
+    setPlanWeeks(weeksVal);
+    setTargetRaceDate(addDaysIso(effectiveStartDate, weeksVal * 7 - 1));
+  };
 
   const liveZones = calculatePaceZones(current5kMinutes);
   const fiveKMinFloor = Math.floor(current5kMinutes);
@@ -110,6 +148,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       goalLabel,
       current5kMinutes,
       daysPerWeek,
+      startDate: effectiveStartDate,
+      customStartDate: useCustomStart ? customStartDate : undefined,
       targetRaceDate,
       planWeeks,
       currentWeek: 1,
@@ -408,10 +448,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
             <div className="space-y-5">
               <div>
                 <h2 className="text-2xl font-extrabold tracking-tight text-white">
-                  Finalize your race timeline
+                  Finalize your timeline & start date
                 </h2>
                 <p className="text-sm text-zinc-400 mt-1">
-                  Personalize your athlete profile and target race date so we can peak and taper you right on schedule.
+                  Plans automatically sync to today's date, or you can set an optional custom start date.
                 </p>
               </div>
 
@@ -429,7 +469,95 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   />
                 </div>
 
+                {/* Plan Start Date Selector: Sync to Today vs Optional Custom Start Date */}
+                <div className="p-4 rounded-2xl bg-[#171A23] border border-white/10 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-[#CCFF00]" />
+                      Plan Start Date
+                    </span>
+                    <span className="text-[11px] font-mono-tabular text-[#CCFF00] font-bold">
+                      Day 1: {formatIsoFull(effectiveStartDate)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-black/40 border border-white/5">
+                    <button
+                      type="button"
+                      onClick={() => handleChangeStartMode(false)}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        !useCustomStart
+                          ? 'bg-[#CCFF00] text-black shadow'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      Start Today ({formatIsoShort(todayIso)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleChangeStartMode(true)}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition cursor-pointer ${
+                        useCustomStart
+                          ? 'bg-[#CCFF00] text-black shadow'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      Optional Custom Date
+                    </button>
+                  </div>
+
+                  {useCustomStart && (
+                    <div className="pt-1 space-y-2">
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleChangeStartMode(true, e.target.value);
+                          }
+                        }}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-black/50 border border-white/15 text-white text-sm font-mono-tabular focus:outline-none focus:border-[#CCFF00]"
+                      />
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <span className="text-zinc-500 mr-1">Quick pick:</span>
+                        {[
+                          { label: 'Tomorrow', iso: addDaysIso(todayIso, 1) },
+                          { label: 'Next Monday', iso: nextMondayIso },
+                          { label: 'In 2 Weeks', iso: addDaysIso(todayIso, 14) },
+                        ].map((preset) => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => handleChangeStartMode(true, preset.iso)}
+                            className={`px-2.5 py-1 rounded-lg font-mono-tabular font-semibold border transition cursor-pointer ${
+                              customStartDate === preset.iso
+                                ? 'bg-[#CCFF00]/15 border-[#CCFF00] text-[#CCFF00]'
+                                : 'bg-white/5 border-white/10 text-zinc-300 hover:text-white'
+                            }`}
+                          >
+                            {preset.label} ({formatIsoShort(preset.iso)})
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Plan Duration
+                    </label>
+                    <select
+                      value={planWeeks}
+                      onChange={(e) => handleChangePlanWeeks(Number(e.target.value))}
+                      className="w-full px-4 py-3 rounded-xl bg-[#171A23] border border-white/10 text-white text-sm focus:outline-none focus:border-[#CCFF00]"
+                    >
+                      <option value={6}>6 Weeks (Sharpening Block)</option>
+                      <option value={8}>8 Weeks (Standard Cycle)</option>
+                      <option value={12}>12 Weeks (Full Build)</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
                       Target Race Date
@@ -441,20 +569,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       className="w-full px-4 py-3 rounded-xl bg-[#171A23] border border-white/10 text-white text-sm font-mono-tabular focus:outline-none focus:border-[#CCFF00]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                      Plan Duration
-                    </label>
-                    <select
-                      value={planWeeks}
-                      onChange={(e) => setPlanWeeks(Number(e.target.value))}
-                      className="w-full px-4 py-3 rounded-xl bg-[#171A23] border border-white/10 text-white text-sm focus:outline-none focus:border-[#CCFF00]"
-                    >
-                      <option value={6}>6 Weeks (Sharpening Block)</option>
-                      <option value={8}>8 Weeks (Standard Cycle)</option>
-                      <option value={12}>12 Weeks (Full Build)</option>
-                    </select>
-                  </div>
                 </div>
 
                 {/* Plan Blueprint Summary Card */}
@@ -465,7 +579,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       Your Adaptive Plan Blueprint
                     </span>
                     <span className="text-xs font-mono-tabular text-zinc-400">
-                      {planWeeks} Weeks • {daysPerWeek}x/wk
+                      Starts {formatIsoShort(effectiveStartDate)} • {planWeeks} Wks
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-center">

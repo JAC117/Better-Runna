@@ -102,8 +102,90 @@ export function calculateRacePredictions(current5kMinutes: number): RacePredicti
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+export function getLocalTodayIso(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function parseIsoLocal(isoDate: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '');
+  if (!match) {
+    const fallback = new Date();
+    fallback.setHours(12, 0, 0, 0);
+    return fallback;
+  }
+  return new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    12,
+    0,
+    0
+  );
+}
+
+export function addDaysIso(isoDate: string, days: number): string {
+  const dt = parseIsoLocal(isoDate);
+  dt.setDate(dt.getDate() + days);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function formatIsoShort(isoDate: string): string {
+  return parseIsoLocal(isoDate).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+export function formatIsoFull(isoDate: string): string {
+  return parseIsoLocal(isoDate).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+export function getMondayWeekdayIndex(isoDate: string): number {
+  const jsDay = parseIsoLocal(isoDate).getDay(); // 0=Sun..6=Sat
+  return jsDay === 0 ? 6 : jsDay - 1; // 0=Mon..6=Sun
+}
+
+export function resolveEffectiveStartDate(
+  profile: Pick<UserProfile, 'customStartDate'>
+): string {
+  const custom = profile.customStartDate?.trim();
+  if (custom && /^\d{4}-\d{2}-\d{2}$/.test(custom)) {
+    return custom;
+  }
+  return getLocalTodayIso();
+}
+
+export function findActiveWeekForToday(
+  weeks: TrainingWeek[],
+  todayIso: string = getLocalTodayIso()
+): number {
+  for (const wk of weeks) {
+    if (wk.workouts.some((w) => w.isoDate === todayIso)) {
+      return wk.weekNumber;
+    }
+  }
+  const firstIso = weeks[0]?.workouts[0]?.isoDate;
+  if (firstIso && todayIso < firstIso) return 1;
+  const lastWk = weeks[weeks.length - 1];
+  const lastIso = lastWk?.workouts[lastWk.workouts.length - 1]?.isoDate;
+  if (lastIso && todayIso > lastIso) return lastWk.weekNumber;
+  return 1;
+}
+
 function getActiveDaysSchedule(daysPerWeek: 3 | 4 | 5 | 6): Record<number, WorkoutType> {
-  // Returns map of dayIndex (0=Mon..6=Sun) -> WorkoutType
+  // Returns map of weekdayIndex (0=Mon..6=Sun) -> WorkoutType
   switch (daysPerWeek) {
     case 3:
       return {
@@ -119,9 +201,9 @@ function getActiveDaysSchedule(daysPerWeek: 3 | 4 | 5 | 6): Record<number, Worko
       return {
         0: 'Rest',
         1: 'Intervals',
-        2: 'Easy Run',
+        2: 'Rest',
         3: 'Tempo',
-        4: 'Rest',
+        4: 'Easy Run',
         5: 'Rest',
         6: 'Long Run',
       };
@@ -141,8 +223,8 @@ function getActiveDaysSchedule(daysPerWeek: 3 | 4 | 5 | 6): Record<number, Worko
         1: 'Intervals',
         2: 'Easy Run',
         3: 'Tempo',
-        4: 'Rest',
-        5: 'Easy Run',
+        4: 'Easy Run',
+        5: 'Rest',
         6: 'Long Run',
       };
   }
@@ -359,12 +441,9 @@ export function generateTrainingPlan(profile: UserProfile): TrainingWeek[] {
   const totalWeeks = profile.planWeeks || 8;
   const weeks: TrainingWeek[] = [];
 
-  // Reference start Monday (current week Monday)
-  const now = new Date();
-  const day = now.getDay();
-  const diffToMon = (day === 0 ? -6 : 1) - day;
-  const currentMonday = new Date(now);
-  currentMonday.setDate(now.getDate() + diffToMon);
+  const todayIso = getLocalTodayIso();
+  const startIso =
+    profile.customStartDate?.trim() || profile.startDate?.trim() || todayIso;
 
   for (let w = 1; w <= totalWeeks; w++) {
     let phaseName = 'Aerobic Foundation';
@@ -405,36 +484,42 @@ export function generateTrainingPlan(profile: UserProfile): TrainingWeek[] {
     let accumulatedKm = 0;
 
     for (let d = 0; d < 7; d++) {
-      const workoutDate = new Date(currentMonday);
-      workoutDate.setDate(currentMonday.getDate() + (w - 1) * 7 + d);
-      const dateStr = workoutDate.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      });
+      const workoutIso = addDaysIso(startIso, (w - 1) * 7 + d);
+      const weekdayIdx = getMondayWeekdayIndex(workoutIso);
+      const dateStr = formatIsoShort(workoutIso);
 
-      const wType = schedule[d];
+      const wType = schedule[weekdayIdx];
       const rawDist =
         wType === 'Rest'
           ? 0
-          : Math.max(3.5, Math.round((weeklyTargetKm * (weights[wType] / totalWeight)) * 2) / 2);
+          : Math.max(
+              3.5,
+              Math.round((weeklyTargetKm * (weights[wType] / totalWeight)) * 2) / 2
+            );
 
       accumulatedKm += rawDist;
 
       const built = buildSegmentsForWorkout(wType, rawDist, w, zones);
-      const avgPaceMin = profile.current5kMinutes / 5 * 1.18;
-      const estimatedDurationMin = wType === 'Rest' ? 0 : Math.round(rawDist * avgPaceMin);
+      const avgPaceMin = (profile.current5kMinutes / 5) * 1.18;
+      const estimatedDurationMin =
+        wType === 'Rest' ? 0 : Math.round(rawDist * avgPaceMin);
 
-      // Pre-complete first 2 workouts of Week 1 for immediate rich dashboard state
-      const isPreCompleted = w === 1 && (d === 1 || (d === 0 && wType !== 'Rest'));
-      const actualPaceSec = Math.round((profile.current5kMinutes * 60) / 5 * (wType === 'Intervals' ? 0.97 : 1.25));
+      // Only pre-complete past workouts if startDate is in the past
+      const isPreCompleted =
+        w === 1 && workoutIso < todayIso && wType !== 'Rest';
+      const actualPaceSec = Math.round(
+        ((profile.current5kMinutes * 60) / 5) *
+          (wType === 'Intervals' ? 0.97 : 1.25)
+      );
       const actualDurSec = Math.round(rawDist * actualPaceSec);
 
       workouts.push({
         id: `w${w}-d${d}`,
         weekNumber: w,
         dayOfWeek: d,
-        dayName: DAY_NAMES[d],
+        dayName: DAY_NAMES[weekdayIdx],
         dateStr,
+        isoDate: workoutIso,
         type: wType,
         title: built.title,
         subtitle: built.subtitle,
@@ -455,7 +540,7 @@ export function generateTrainingPlan(profile: UserProfile): TrainingWeek[] {
                 wType === 'Intervals'
                   ? 'Hit all splits within 2s of target pace! Legs felt snappy.'
                   : 'Smooth aerobic cruise, breathing felt super controlled.',
-              completedAt: workoutDate.toISOString(),
+              completedAt: parseIsoLocal(workoutIso).toISOString(),
             }
           : undefined,
       });
@@ -472,16 +557,60 @@ export function generateTrainingPlan(profile: UserProfile): TrainingWeek[] {
   return weeks;
 }
 
-export const DEFAULT_DEMO_PROFILE: UserProfile = {
-  name: 'Alex Rivera',
-  goal: '10K',
-  intent: 'improve',
-  goalLabel: 'Improve 10K Time',
-  current5kMinutes: 23.5, // 23:30 5K (4:42/km base)
-  daysPerWeek: 4,
-  targetRaceDate: '2027-01-17',
-  planWeeks: 8,
-  currentWeek: 1,
-  createdAt: new Date().toISOString(),
-  unit: 'km',
-};
+export function rebuildPlanPreservingLogs(
+  oldWeeks: TrainingWeek[],
+  updatedProfile: UserProfile
+): TrainingWeek[] {
+  const freshPlan = generateTrainingPlan(updatedProfile);
+  const completedById = new Map<string, ScheduledWorkout['loggedData']>();
+  const completedByIso = new Map<string, ScheduledWorkout['loggedData']>();
+
+  for (const wk of oldWeeks) {
+    for (const wo of wk.workouts) {
+      if (wo.completed && wo.type !== 'Rest') {
+        if (wo.isoDate) {
+          completedByIso.set(`${wo.isoDate}::${wo.type}`, wo.loggedData);
+        }
+        completedById.set(`${wo.id}::${wo.type}`, wo.loggedData);
+      }
+    }
+  }
+
+  return freshPlan.map((wk) => ({
+    ...wk,
+    workouts: wk.workouts.map((wo) => {
+      const matchedLog =
+        (wo.isoDate && completedByIso.get(`${wo.isoDate}::${wo.type}`)) ||
+        completedById.get(`${wo.id}::${wo.type}`);
+      if (matchedLog) {
+        return {
+          ...wo,
+          completed: true,
+          loggedData: matchedLog,
+        };
+      }
+      return wo;
+    }),
+  }));
+}
+
+export function createDefaultProfileForToday(): UserProfile {
+  const todayIso = getLocalTodayIso();
+  return {
+    name: 'Alex Rivera',
+    goal: '10K',
+    intent: 'improve',
+    goalLabel: 'Improve 10K Time',
+    current5kMinutes: 23.5, // 23:30 5K (4:42/km base)
+    daysPerWeek: 4,
+    startDate: todayIso,
+    customStartDate: undefined,
+    targetRaceDate: addDaysIso(todayIso, 8 * 7 - 1),
+    planWeeks: 8,
+    currentWeek: 1,
+    createdAt: new Date().toISOString(),
+    unit: 'km',
+  };
+}
+
+export const DEFAULT_DEMO_PROFILE: UserProfile = createDefaultProfileForToday();

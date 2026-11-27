@@ -5,7 +5,21 @@ function fmtPace(sec) {
   return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`;
 }
 
+function toIsoLocal(dt) {
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export function buildInitialSeedPayload() {
+  const startDt = new Date();
+  startDt.setHours(12, 0, 0, 0);
+  const startIso = toIsoLocal(startDt);
+
+  const raceDt = new Date(startDt);
+  raceDt.setDate(startDt.getDate() + 8 * 7 - 1);
+
   const profile = {
     name: 'Alex Rivera',
     goal: '10K',
@@ -13,7 +27,9 @@ export function buildInitialSeedPayload() {
     goalLabel: 'Improve 10K Time',
     current5kMinutes: 23.5,
     daysPerWeek: 4,
-    targetRaceDate: '2027-01-17',
+    startDate: startIso,
+    customStartDate: undefined,
+    targetRaceDate: toIsoLocal(raceDt),
     planWeeks: 8,
     currentWeek: 1,
     createdAt: new Date().toISOString(),
@@ -30,18 +46,12 @@ export function buildInitialSeedPayload() {
   const schedule = {
     0: 'Rest',
     1: 'Intervals',
-    2: 'Easy Run',
+    2: 'Rest',
     3: 'Tempo',
-    4: 'Rest',
+    4: 'Easy Run',
     5: 'Rest',
     6: 'Long Run',
   };
-
-  const now = new Date();
-  const day = now.getDay();
-  const diffToMon = (day === 0 ? -6 : 1) - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMon);
 
   const weeks = [];
   for (let w = 1; w <= 8; w++) {
@@ -71,20 +81,23 @@ export function buildInitialSeedPayload() {
     let accKm = 0;
 
     for (let d = 0; d < 7; d++) {
-      const dObj = new Date(monday);
-      dObj.setDate(monday.getDate() + (w - 1) * 7 + d);
+      const dObj = new Date(startDt);
+      dObj.setDate(startDt.getDate() + (w - 1) * 7 + d);
+      const isoDate = toIsoLocal(dObj);
+      const jsDay = dObj.getDay();
+      const weekdayIdx = jsDay === 0 ? 6 : jsDay - 1;
       const dateStr = dObj.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
       });
-      const type = schedule[d];
+      const type = schedule[weekdayIdx];
       const dist =
         type === 'Rest'
           ? 0
           : Math.max(3.5, Math.round((targetKm * (weights[type] / totalWeight)) * 2) / 2);
       accKm += dist;
 
-      const isPreDone = w === 1 && (d === 1 || d === 2);
+      const isPreDone = false;
       const actualPaceSec = Math.round(baseSec * (type === 'Intervals' ? 0.97 : 1.25));
 
       let title = 'Rest & Mobility';
@@ -221,8 +234,9 @@ export function buildInitialSeedPayload() {
         id: `w${w}-d${d}`,
         weekNumber: w,
         dayOfWeek: d,
-        dayName: dayNames[d],
+        dayName: dayNames[weekdayIdx],
         dateStr,
+        isoDate,
         type,
         title,
         subtitle,

@@ -22,8 +22,11 @@ import type {
 import {
   calculatePaceZones,
   calculateRacePredictions,
+  findActiveWeekForToday,
   formatDuration,
+  formatIsoShort,
   formatSecondsToPace,
+  getLocalTodayIso,
 } from '../utils/planGenerator';
 import { WorkoutRouteMap } from './WorkoutRouteMap';
 
@@ -52,7 +55,16 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
   onOpenOnboarding,
   onOpenGarminModal,
 }) => {
-  const currentWeek = weeks[0];
+  const todayIso = getLocalTodayIso();
+  const activeWeekNum = findActiveWeekForToday(weeks, todayIso);
+  const currentWeek =
+    weeks.find((w) => w.weekNumber === activeWeekNum) || weeks[0];
+  const effectiveStartIso =
+    profile.customStartDate ||
+    profile.startDate ||
+    weeks[0]?.workouts[0]?.isoDate ||
+    todayIso;
+
   const weekRuns = currentWeek.workouts.filter((w) => w.type !== 'Rest');
   const completedInWeek = weekRuns.filter((w) => w.completed);
   const weekLoggedKm = completedInWeek.reduce(
@@ -68,6 +80,9 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
       : 0;
 
   const nextWorkout =
+    currentWeek.workouts.find(
+      (w) => w.isoDate === todayIso && w.type !== 'Rest' && !w.completed
+    ) ||
     currentWeek.workouts.find((w) => w.type !== 'Rest' && !w.completed) ||
     weekRuns[0];
 
@@ -83,7 +98,8 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
         {/* Left Editorial Column */}
         <div className="lg:col-span-6 space-y-6">
           <div className="text-xs font-extrabold uppercase tracking-[0.18em] text-[#CCFF00]">
-            {profile.goalLabel} • {profile.planWeeks}-Week Periodized Cycle
+            {profile.goalLabel} • Starts {formatIsoShort(effectiveStartIso)} (
+            {profile.customStartDate ? 'Custom Date' : 'Today'})
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-[3.35rem] font-black tracking-tight text-white leading-[1.06]">
@@ -244,6 +260,7 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
           {currentWeek.workouts.map((wo) => {
             const isRest = wo.type === 'Rest';
+            const isToday = wo.isoDate === todayIso;
             return (
               <div
                 key={wo.id}
@@ -251,18 +268,25 @@ export const WebsiteHomeView: React.FC<WebsiteHomeViewProps> = ({
                 className={`p-4 rounded-2xl border transition flex flex-col justify-between cursor-pointer ${
                   wo.completed
                     ? 'bg-[#13191D] border-[#CCFF00]/45 hover:border-[#CCFF00]'
+                    : isToday
+                    ? 'bg-[#181E2C] border-[#CCFF00] shadow-md'
                     : isRest
                     ? 'bg-[#101219] border-white/5 opacity-75 hover:opacity-100'
                     : 'bg-[#131722] border-white/10 hover:border-white/25'
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between text-xs pb-2 border-b border-white/5">
-                    <span className="font-black uppercase text-white">
-                      {wo.dayName}{' '}
-                      <span className="font-mono-tabular font-normal text-zinc-500">
+                  <div className="flex items-center justify-between text-xs pb-2 border-b border-white/5 gap-1">
+                    <span className="font-black uppercase text-white flex items-center gap-1 flex-wrap">
+                      <span>{wo.dayName}</span>
+                      <span className="font-mono-tabular font-normal text-zinc-400">
                         {wo.dateStr}
                       </span>
+                      {isToday && (
+                        <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#CCFF00] text-black">
+                          Today
+                        </span>
+                      )}
                     </span>
                     {wo.completed ? (
                       <CheckCircle2 className="w-4 h-4 text-[#CCFF00]" />

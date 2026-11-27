@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS athletes (
   goal_label TEXT NOT NULL,
   current_5k_minutes DOUBLE PRECISION NOT NULL,
   days_per_week SMALLINT NOT NULL,
+  start_date TEXT,
+  custom_start_date TEXT,
   target_race_date TEXT NOT NULL,
   plan_weeks SMALLINT NOT NULL,
   current_week SMALLINT NOT NULL DEFAULT 1,
@@ -15,6 +17,9 @@ CREATE TABLE IF NOT EXISTS athletes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE athletes ADD COLUMN IF NOT EXISTS start_date TEXT;
+ALTER TABLE athletes ADD COLUMN IF NOT EXISTS custom_start_date TEXT;
 
 CREATE TABLE IF NOT EXISTS training_weeks (
   athlete_id INTEGER NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,

@@ -12,6 +12,7 @@ import {
   ArrowUpRight,
   Watch,
   Send,
+  RotateCcw,
 } from 'lucide-react';
 import type {
   GarminIntegrationState,
@@ -19,7 +20,11 @@ import type {
   TrainingWeek,
   UserProfile,
 } from '../types';
-import { formatDuration } from '../utils/planGenerator';
+import {
+  formatDuration,
+  formatIsoFull,
+  getLocalTodayIso,
+} from '../utils/planGenerator';
 
 interface PlanDashboardViewProps {
   profile: UserProfile;
@@ -32,6 +37,7 @@ interface PlanDashboardViewProps {
   onOpenOnboarding: () => void;
   onOpenGarminModal: () => void;
   onPushWeekToGarmin: (weekNum: number) => void;
+  onUpdateStartDate: (customStartIso?: string) => void;
 }
 
 export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
@@ -45,7 +51,16 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
   onOpenOnboarding,
   onOpenGarminModal,
   onPushWeekToGarmin,
+  onUpdateStartDate,
 }) => {
+  const todayIso = getLocalTodayIso();
+  const effectiveStartIso =
+    profile.customStartDate ||
+    profile.startDate ||
+    weeks[0]?.workouts[0]?.isoDate ||
+    todayIso;
+  const isSyncedToToday = !profile.customStartDate && effectiveStartIso === todayIso;
+
   const currentWeekObj =
     weeks.find((w) => w.weekNumber === selectedWeekNumber) || weeks[0];
 
@@ -76,8 +91,11 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
     garmin.pushedWorkoutIds.includes(w.id)
   ).length;
 
-  // Next key uncompleted workout in current week
+  // Prefer today's workout if uncompleted, otherwise next uncompleted workout in current week
   const nextUpWorkout =
+    currentWeekObj.workouts.find(
+      (w) => w.isoDate === todayIso && w.type !== 'Rest' && !w.completed
+    ) ||
     currentWeekObj.workouts.find((w) => w.type !== 'Rest' && !w.completed) ||
     weekRuns[0];
 
@@ -151,6 +169,66 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
             <SlidersHorizontal className="w-3.5 h-3.5 text-[#CCFF00]" />
             Customize Plan
           </button>
+        </div>
+      </div>
+
+      {/* Plan Start Date & Live Today Sync Bar */}
+      <div className="p-4 rounded-2xl bg-[#131722] border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-[#CCFF00]/15 border border-[#CCFF00]/30 flex items-center justify-center text-[#CCFF00] shrink-0">
+            <Calendar className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-extrabold uppercase tracking-wider text-white">
+                Plan Start: {formatIsoFull(effectiveStartIso)}
+              </span>
+              <span
+                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                  isSyncedToToday
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                }`}
+              >
+                {isSyncedToToday ? 'Synced to Current Date' : 'Custom Start Date'}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              Today is <strong className="text-zinc-200">{formatIsoFull(todayIso)}</strong> • Race Target: <strong className="text-zinc-200 font-mono-tabular">{profile.targetRaceDate}</strong>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-zinc-400 bg-[#0B0E15] px-3 py-1.5 rounded-xl border border-white/10">
+            <span className="font-bold uppercase text-[10px] tracking-wider text-zinc-400">
+              Optional Start Date:
+            </span>
+            <input
+              id="plan-optional-start-date"
+              type="date"
+              value={effectiveStartIso}
+              onChange={(e) => {
+                if (e.target.value) {
+                  onUpdateStartDate(
+                    e.target.value === todayIso ? undefined : e.target.value
+                  );
+                }
+              }}
+              className="bg-transparent text-white font-mono-tabular text-xs font-bold focus:outline-none cursor-pointer"
+            />
+          </label>
+
+          {!isSyncedToToday && (
+            <button
+              type="button"
+              onClick={() => onUpdateStartDate(undefined)}
+              className="px-3.5 py-2 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Sync to Today
+            </button>
+          )}
         </div>
       </div>
 
@@ -326,6 +404,7 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3">
           {currentWeekObj.workouts.map((workout) => {
             const isRest = workout.type === 'Rest';
+            const isToday = workout.isoDate === todayIso;
             const colors = getTypeColors(workout.type);
             const isOnWatch = garmin.pushedWorkoutIds.includes(workout.id);
 
@@ -336,6 +415,8 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
                 className={`group relative rounded-2xl p-4 border transition-all flex flex-col justify-between cursor-pointer ${
                   workout.completed
                     ? 'bg-[#141A1D] border-[#CCFF00]/45 hover:border-[#CCFF00]'
+                    : isToday
+                    ? 'bg-[#191F2E] border-[#CCFF00] shadow-lg'
                     : isRest
                     ? 'bg-[#11131A]/70 border-white/5 hover:border-white/15 opacity-80'
                     : 'bg-[#151822] border-white/10 hover:border-white/25 hover:-translate-y-0.5 shadow-lg'
@@ -344,13 +425,18 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
                 {/* Top Day & Status Header */}
                 <div>
                   <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-white/5">
-                    <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-xs font-black uppercase text-white">
                         {workout.dayName}
                       </span>
-                      <span className="text-[11px] font-mono-tabular text-zinc-500 ml-1.5">
+                      <span className="text-[11px] font-mono-tabular text-zinc-400">
                         {workout.dateStr}
                       </span>
+                      {isToday && (
+                        <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-[#CCFF00] text-black">
+                          Today
+                        </span>
+                      )}
                     </div>
 
                     {workout.completed ? (

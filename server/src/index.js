@@ -66,6 +66,8 @@ function rowToProfile(row) {
     goalLabel: row.goal_label,
     current5kMinutes: Number(row.current_5k_minutes),
     daysPerWeek: Number(row.days_per_week),
+    startDate: row.start_date || undefined,
+    customStartDate: row.custom_start_date || undefined,
     targetRaceDate: row.target_race_date,
     planWeeks: Number(row.plan_weeks),
     currentWeek: Number(row.current_week),
@@ -261,8 +263,9 @@ async function persistStateInTransaction(client, { profile, weeks, garmin }) {
     await client.query(
       `INSERT INTO athletes (
         id, name, goal, intent, goal_label, current_5k_minutes,
-        days_per_week, target_race_date, plan_weeks, current_week, unit, updated_at
-      ) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        days_per_week, start_date, custom_start_date, target_race_date,
+        plan_weeks, current_week, unit, updated_at
+      ) VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         goal = EXCLUDED.goal,
@@ -270,6 +273,8 @@ async function persistStateInTransaction(client, { profile, weeks, garmin }) {
         goal_label = EXCLUDED.goal_label,
         current_5k_minutes = EXCLUDED.current_5k_minutes,
         days_per_week = EXCLUDED.days_per_week,
+        start_date = EXCLUDED.start_date,
+        custom_start_date = EXCLUDED.custom_start_date,
         target_race_date = EXCLUDED.target_race_date,
         plan_weeks = EXCLUDED.plan_weeks,
         current_week = EXCLUDED.current_week,
@@ -282,6 +287,8 @@ async function persistStateInTransaction(client, { profile, weeks, garmin }) {
         profile.goalLabel,
         Number(profile.current5kMinutes),
         Number(profile.daysPerWeek),
+        profile.startDate || null,
+        profile.customStartDate || null,
         profile.targetRaceDate,
         Number(profile.planWeeks),
         Number(profile.currentWeek || 1),

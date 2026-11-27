@@ -11,6 +11,8 @@ export interface UserProfile {
   goalLabel: string; // e.g., "Improve 5K Time", "Run a 10K"
   current5kMinutes: number; // e.g. 25.0 (25:00 5K equivalent)
   daysPerWeek: 3 | 4 | 5 | 6;
+  startDate: string; // YYYY-MM-DD (synced to current date unless customStartDate is set)
+  customStartDate?: string; // Optional YYYY-MM-DD override chosen by user
   targetRaceDate: string; // YYYY-MM-DD
   planWeeks: number;
   currentWeek: number;
@@ -117,9 +119,10 @@ export interface PastWorkoutRecord {
 export interface ScheduledWorkout {
   id: string;
   weekNumber: number;
-  dayOfWeek: number; // 0 = Mon, 6 = Sun
+  dayOfWeek: number; // 0 = Day 1 of week .. 6 = Day 7 of week
   dayName: string; // 'Mon', 'Tue', etc.
   dateStr: string;
+  isoDate?: string; // YYYY-MM-DD exact calendar date
   type: WorkoutType;
   title: string;
   subtitle: string;

@@ -21,9 +21,13 @@ import type {
   UserProfile,
 } from './types';
 import {
-  DEFAULT_DEMO_PROFILE,
+  addDaysIso,
+  createDefaultProfileForToday,
+  findActiveWeekForToday,
   formatSecondsToPace,
   generateTrainingPlan,
+  getLocalTodayIso,
+  rebuildPlanPreservingLogs,
 } from './utils/planGenerator';
 import { createInitialGarminState } from './utils/garminUtils';
 import { buildPastWorkoutsList } from './utils/gpsRouteGenerator';
@@ -57,24 +61,43 @@ export type WebsitePage =
 
 export function App() {
   const [profile, setProfile] = useState<UserProfile>(() => {
+    const todayIso = getLocalTodayIso();
     try {
       const saved = localStorage.getItem(STORAGE_KEY_PROFILE);
-      return saved ? JSON.parse(saved) : DEFAULT_DEMO_PROFILE;
+      if (saved) {
+        const parsed = JSON.parse(saved) as UserProfile;
+        if (!parsed.customStartDate) {
+          return {
+            ...parsed,
+            startDate: todayIso,
+            targetRaceDate: addDaysIso(todayIso, (parsed.planWeeks || 8) * 7 - 1),
+          };
+        }
+        return { ...parsed, startDate: parsed.customStartDate };
+      }
+      return createDefaultProfileForToday();
     } catch {
-      return DEFAULT_DEMO_PROFILE;
+      return createDefaultProfileForToday();
     }
   });
 
   const [weeks, setWeeks] = useState<TrainingWeek[]>(() => {
+    const todayIso = getLocalTodayIso();
     try {
       const saved = localStorage.getItem(STORAGE_KEY_PLAN);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const parsed = JSON.parse(saved) as TrainingWeek[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const expectedStart = profile.customStartDate || todayIso;
+          if (parsed[0]?.workouts[0]?.isoDate === expectedStart) {
+            return parsed;
+          }
+          return rebuildPlanPreservingLogs(parsed, profile);
+        }
       }
-      return generateTrainingPlan(DEFAULT_DEMO_PROFILE);
+      return generateTrainingPlan(profile);
     } catch {
-      return generateTrainingPlan(DEFAULT_DEMO_PROFILE);
+      return generateTrainingPlan(profile);
     }
   });
 
@@ -93,7 +116,9 @@ export function App() {
 
   const [activePage, setActivePage] = useState<WebsitePage>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
-  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number>(1);
+  const [selectedWeekNumber, setSelectedWeekNumber] = useState<number>(() =>
+    findActiveWeekForToday(weeks)
+  );
   const [selectedWorkout, setSelectedWorkout] =
     useState<ScheduledWorkout | null>(null);
   const [trackerTargetWorkout, setTrackerTargetWorkout] =
@@ -110,10 +135,11 @@ export function App() {
   const hydratedFromBackendRef = useRef<boolean>(false);
   const skipNextAutoSaveRef = useRef<boolean>(false);
 
-  // Hydrate from PostgreSQL Backend on mount (or seed PostgreSQL if empty)
+  // Hydrate from PostgreSQL Backend on mount (and sync start date to Today unless customStartDate is set)
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const todayIso = getLocalTodayIso();
       const [bootstrap, health] = await Promise.all([
         fetchBootstrapState(),
         fetchDbHealth(),
@@ -131,13 +157,46 @@ export function App() {
       }
 
       if (bootstrap.initialized && bootstrap.profile && bootstrap.weeks?.length) {
-        skipNextAutoSaveRef.current = true;
-        setProfile(bootstrap.profile);
-        setWeeks(bootstrap.weeks);
-        if (bootstrap.garmin) {
-          setGarmin(bootstrap.garmin);
+        const dbProf = bootstrap.profile;
+        const hasCustom = Boolean(dbProf.customStartDate?.trim());
+        const expectedStart = hasCustom ? dbProf.customStartDate! : todayIso;
+        const firstWorkoutIso = bootstrap.weeks[0]?.workouts[0]?.isoDate;
+
+        if (!hasCustom && (dbProf.startDate !== todayIso || firstWorkoutIso !== expectedStart)) {
+          // Auto-sync training plan start date to Today's current date and save back to PostgreSQL
+          const syncedProfile: UserProfile = {
+            ...dbProf,
+            startDate: todayIso,
+            customStartDate: undefined,
+            targetRaceDate: addDaysIso(todayIso, (dbProf.planWeeks || 8) * 7 - 1),
+          };
+          const syncedWeeks = rebuildPlanPreservingLogs(
+            bootstrap.weeks,
+            syncedProfile
+          );
+          setProfile(syncedProfile);
+          setWeeks(syncedWeeks);
+          setSelectedWeekNumber(findActiveWeekForToday(syncedWeeks, todayIso));
+          if (bootstrap.garmin) {
+            setGarmin(bootstrap.garmin);
+          }
+          setDbStatus('synced');
+        } else {
+          skipNextAutoSaveRef.current = true;
+          const hydratedProf: UserProfile = {
+            ...dbProf,
+            startDate: expectedStart,
+          };
+          setProfile(hydratedProf);
+          setWeeks(bootstrap.weeks);
+          setSelectedWeekNumber(
+            findActiveWeekForToday(bootstrap.weeks, todayIso)
+          );
+          if (bootstrap.garmin) {
+            setGarmin(bootstrap.garmin);
+          }
+          setDbStatus('synced');
         }
-        setDbStatus('synced');
       } else {
         // First boot on fresh PostgreSQL volume: seed current state into PostgreSQL
         const seeded = await saveFullStateToDb({ profile, weeks, garmin });
@@ -199,13 +258,41 @@ export function App() {
   );
 
   const handleCompleteOnboarding = (newProfile: UserProfile) => {
-    setProfile(newProfile);
-    const freshPlan = generateTrainingPlan(newProfile);
+    const todayIso = getLocalTodayIso();
+    const effectiveStart = newProfile.customStartDate?.trim() || todayIso;
+    const normalizedProfile: UserProfile = {
+      ...newProfile,
+      startDate: effectiveStart,
+      customStartDate: newProfile.customStartDate?.trim() || undefined,
+    };
+    setProfile(normalizedProfile);
+    const freshPlan = generateTrainingPlan(normalizedProfile);
     setWeeks(freshPlan);
-    setGarmin(createInitialGarminState(newProfile, freshPlan));
-    setSelectedWeekNumber(1);
+    setGarmin(createInitialGarminState(normalizedProfile, freshPlan));
+    setSelectedWeekNumber(findActiveWeekForToday(freshPlan, todayIso));
     setIsOnboardingOpen(false);
     navigateTo('plan');
+  };
+
+  const handleUpdateStartDate = (customStartIso?: string) => {
+    const todayIso = getLocalTodayIso();
+    const trimmedCustom = customStartIso?.trim() || undefined;
+    const effectiveStart = trimmedCustom || todayIso;
+
+    const updatedProfile: UserProfile = {
+      ...profile,
+      startDate: effectiveStart,
+      customStartDate: trimmedCustom,
+      targetRaceDate: addDaysIso(
+        effectiveStart,
+        (profile.planWeeks || 8) * 7 - 1
+      ),
+    };
+
+    const nextWeeks = rebuildPlanPreservingLogs(weeks, updatedProfile);
+    setProfile(updatedProfile);
+    setWeeks(nextWeeks);
+    setSelectedWeekNumber(findActiveWeekForToday(nextWeeks, todayIso));
   };
 
   const handleLogWorkoutComplete = (
@@ -375,10 +462,11 @@ export function App() {
   };
 
   const handleResetDefaultDemo = () => {
-    const freshWeeks = generateTrainingPlan(DEFAULT_DEMO_PROFILE);
-    setProfile(DEFAULT_DEMO_PROFILE);
+    const todayProfile = createDefaultProfileForToday();
+    const freshWeeks = generateTrainingPlan(todayProfile);
+    setProfile(todayProfile);
     setWeeks(freshWeeks);
-    setGarmin(createInitialGarminState(DEFAULT_DEMO_PROFILE, freshWeeks));
+    setGarmin(createInitialGarminState(todayProfile, freshWeeks));
     setSelectedWeekNumber(1);
   };
 
@@ -612,6 +700,7 @@ export function App() {
             onOpenOnboarding={() => setIsOnboardingOpen(true)}
             onOpenGarminModal={() => setIsGarminModalOpen(true)}
             onPushWeekToGarmin={handlePushWeekToGarmin}
+            onUpdateStartDate={handleUpdateStartDate}
           />
         )}
 
@@ -729,7 +818,10 @@ export function App() {
             <ul className="space-y-2 text-zinc-400 font-mono-tabular">
               <li>Goal: {profile.goalLabel}</li>
               <li>5K Pace Benchmark: {fiveKPaceStr}/km</li>
-              <li>Schedule: {profile.daysPerWeek} runs / week</li>
+              <li>
+                Start Date: {profile.customStartDate || profile.startDate} (
+                {profile.customStartDate ? 'Custom' : 'Synced Today'})
+              </li>
               <li>Race Date: {profile.targetRaceDate}</li>
             </ul>
           </div>
