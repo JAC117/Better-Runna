@@ -13,9 +13,11 @@ import {
   Watch,
   Send,
   RotateCcw,
+  TrendingUp,
 } from 'lucide-react';
 import type {
   GarminIntegrationState,
+  RampRate,
   ScheduledWorkout,
   TrainingWeek,
   UserProfile,
@@ -23,7 +25,9 @@ import type {
 import {
   formatDuration,
   formatIsoFull,
+  getFitnessTier,
   getLocalTodayIso,
+  RAMP_CONFIGS,
 } from '../utils/planGenerator';
 
 interface PlanDashboardViewProps {
@@ -38,6 +42,7 @@ interface PlanDashboardViewProps {
   onOpenGarminModal: () => void;
   onPushWeekToGarmin: (weekNum: number) => void;
   onUpdateStartDate: (customStartIso?: string) => void;
+  onUpdateRampRate: (rate: RampRate) => void;
 }
 
 export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
@@ -52,8 +57,11 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
   onOpenGarminModal,
   onPushWeekToGarmin,
   onUpdateStartDate,
+  onUpdateRampRate,
 }) => {
   const todayIso = getLocalTodayIso();
+  const fitnessTier = getFitnessTier(profile.current5kMinutes);
+  const activeRamp: RampRate = profile.rampRate || 'standard';
 
   if (weeks.length === 0) {
     return (
@@ -66,7 +74,7 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
             No Active Training Plan Yet
           </h1>
           <p className="text-sm text-zinc-400 leading-relaxed">
-            Set your race goal, current 5K benchmark, weekly schedule, and start date (synced to today or an optional custom date) to generate your structured training plan.
+            Set your race goal, current 5K benchmark, distance ramping level (Low, Standard, or High), and start date to generate a fitness-calibrated training plan.
           </p>
         </div>
         <div className="pt-2">
@@ -168,9 +176,11 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
       {/* Top Plan Header & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-widest text-[#CCFF00]">
+          <div className="inline-flex flex-wrap items-center gap-2 text-xs font-extrabold uppercase tracking-widest text-[#CCFF00]">
             <Flame className="w-3.5 h-3.5 fill-[#CCFF00]" />
-            {profile.goalLabel} • {profile.planWeeks}-Week Adaptive Plan
+            <span>
+              {profile.goalLabel} • {profile.planWeeks}-Week {fitnessTier} Plan
+            </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white mt-0.5">
             Week {currentWeekObj.weekNumber}: {currentWeekObj.phaseName}
@@ -201,63 +211,115 @@ export const PlanDashboardView: React.FC<PlanDashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Plan Start Date & Live Today Sync Bar */}
-      <div className="p-4 rounded-2xl bg-[#131722] border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#CCFF00]/15 border border-[#CCFF00]/30 flex items-center justify-center text-[#CCFF00] shrink-0">
-            <Calendar className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="font-extrabold uppercase tracking-wider text-white">
-                Plan Start: {formatIsoFull(effectiveStartIso)}
-              </span>
-              <span
-                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                  isSyncedToToday
-                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
-                }`}
-              >
-                {isSyncedToToday ? 'Synced to Current Date' : 'Custom Start Date'}
-              </span>
+      {/* Plan Start Date, Fitness Calibration & Live Distance Ramping Bar */}
+      <div className="p-4 rounded-2xl bg-[#131722] border border-white/10 space-y-3.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#CCFF00]/15 border border-[#CCFF00]/30 flex items-center justify-center text-[#CCFF00] shrink-0">
+              <Calendar className="w-4 h-4" />
             </div>
-            <p className="text-[11px] text-zinc-400 mt-0.5">
-              Today is <strong className="text-zinc-200">{formatIsoFull(todayIso)}</strong> • Race Target: <strong className="text-zinc-200 font-mono-tabular">{profile.targetRaceDate}</strong>
-            </p>
+            <div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-extrabold uppercase tracking-wider text-white">
+                  Plan Start: {formatIsoFull(effectiveStartIso)}
+                </span>
+                <span
+                  className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                    isSyncedToToday
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                  }`}
+                >
+                  {isSyncedToToday ? 'Synced to Current Date' : 'Custom Start Date'}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                Today is <strong className="text-zinc-200">{formatIsoFull(todayIso)}</strong> • Race Target: <strong className="text-zinc-200 font-mono-tabular">{profile.targetRaceDate}</strong>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-zinc-400 bg-[#0B0E15] px-3 py-1.5 rounded-xl border border-white/10">
+              <span className="font-bold uppercase text-[10px] tracking-wider text-zinc-400">
+                Optional Start Date:
+              </span>
+              <input
+                id="plan-optional-start-date"
+                type="date"
+                value={effectiveStartIso}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onUpdateStartDate(
+                      e.target.value === todayIso ? undefined : e.target.value
+                    );
+                  }
+                }}
+                className="bg-transparent text-white font-mono-tabular text-xs font-bold focus:outline-none cursor-pointer"
+              />
+            </label>
+
+            {!isSyncedToToday && (
+              <button
+                type="button"
+                onClick={() => onUpdateStartDate(undefined)}
+                className="px-3.5 py-2 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Sync to Today
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-zinc-400 bg-[#0B0E15] px-3 py-1.5 rounded-xl border border-white/10">
-            <span className="font-bold uppercase text-[10px] tracking-wider text-zinc-400">
-              Optional Start Date:
+        {/* Fitness Level & Distance Ramping Switcher */}
+        <div className="pt-3 border-t border-white/8 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 font-extrabold uppercase tracking-wider text-zinc-300">
+              <TrendingUp className="w-3.5 h-3.5 text-[#CCFF00]" />
+              Distance Ramping:
             </span>
-            <input
-              id="plan-optional-start-date"
-              type="date"
-              value={effectiveStartIso}
-              onChange={(e) => {
-                if (e.target.value) {
-                  onUpdateStartDate(
-                    e.target.value === todayIso ? undefined : e.target.value
-                  );
-                }
-              }}
-              className="bg-transparent text-white font-mono-tabular text-xs font-bold focus:outline-none cursor-pointer"
-            />
-          </label>
+            <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[11px] font-mono-tabular font-semibold text-zinc-200">
+              {fitnessTier} Fitness ({Math.floor(profile.current5kMinutes)}:
+              {Math.round((profile.current5kMinutes % 1) * 60)
+                .toString()
+                .padStart(2, '0')}{' '}
+              5K)
+            </span>
+            <span className="text-[11px] text-zinc-400">
+              {RAMP_CONFIGS[activeRamp].description}
+            </span>
+          </div>
 
-          {!isSyncedToToday && (
-            <button
-              type="button"
-              onClick={() => onUpdateStartDate(undefined)}
-              className="px-3.5 py-2 rounded-xl bg-[#CCFF00] hover:bg-[#b8e600] text-black font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Sync to Today
-            </button>
-          )}
+          <div
+            role="group"
+            aria-label="Distance Ramping Rate"
+            className="inline-flex items-center p-1 rounded-xl bg-[#0B0E15] border border-white/10 self-start lg:self-auto shrink-0"
+          >
+            {(['low', 'standard', 'high'] as const).map((rateKey) => {
+              const selected = activeRamp === rateKey;
+              const label =
+                rateKey === 'low'
+                  ? 'Low (~6%)'
+                  : rateKey === 'standard'
+                  ? 'Standard (10%)'
+                  : 'High (~13%)';
+              return (
+                <button
+                  key={rateKey}
+                  type="button"
+                  onClick={() => onUpdateRampRate(rateKey)}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold uppercase tracking-wider transition cursor-pointer ${
+                    selected
+                      ? 'bg-[#CCFF00] text-black shadow'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 

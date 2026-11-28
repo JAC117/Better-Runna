@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   goal_label TEXT NOT NULL,
   current_5k_minutes DOUBLE PRECISION NOT NULL,
   days_per_week SMALLINT NOT NULL,
+  ramp_rate TEXT NOT NULL DEFAULT 'standard',
   start_date TEXT,
   custom_start_date TEXT,
   target_race_date TEXT NOT NULL,
@@ -36,6 +37,9 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE user_profiles
+  ADD COLUMN IF NOT EXISTS ramp_rate TEXT NOT NULL DEFAULT 'standard';
 
 CREATE TABLE IF NOT EXISTS user_training_weeks (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

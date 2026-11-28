@@ -18,6 +18,7 @@ import type {
   GarminActivityFeedItem,
   GarminIntegrationState,
   LoggedRunData,
+  RampRate,
   ScheduledWorkout,
   TrainingWeek,
   UserProfile,
@@ -73,6 +74,7 @@ function createBlankUserProfile(userName: string): UserProfile {
     goalLabel: 'Run a 10K',
     current5kMinutes: 25.0,
     daysPerWeek: 4,
+    rampRate: 'standard',
     startDate: todayIso,
     customStartDate: undefined,
     targetRaceDate: addDaysIso(todayIso, 8 * 7 - 1),
@@ -451,30 +453,15 @@ export function App() {
   };
 
   const handleQuickRecalibrate5k = (new5kMinutes: number) => {
-    const updatedProfile = { ...profile, current5kMinutes: new5kMinutes };
+    const updatedProfile: UserProfile = {
+      ...profile,
+      current5kMinutes: new5kMinutes,
+    };
     setProfile(updatedProfile);
 
     if (weeks.length > 0) {
-      const freshPlan = generateTrainingPlan(updatedProfile);
       setWeeks((oldWeeks) =>
-        freshPlan.map((newWk, wIdx) => {
-          const oldWk = oldWeeks[wIdx];
-          if (!oldWk) return newWk;
-          return {
-            ...newWk,
-            workouts: newWk.workouts.map((newWo, dIdx) => {
-              const oldWo = oldWk.workouts[dIdx];
-              if (oldWo && oldWo.completed) {
-                return {
-                  ...newWo,
-                  completed: true,
-                  loggedData: oldWo.loggedData,
-                };
-              }
-              return newWo;
-            }),
-          };
-        })
+        rebuildPlanPreservingLogs(oldWeeks, updatedProfile)
       );
     }
 
@@ -488,6 +475,20 @@ export function App() {
           ),
         },
       }));
+    }
+  };
+
+  const handleUpdateRampRate = (nextRamp: RampRate) => {
+    const updatedProfile: UserProfile = {
+      ...profile,
+      rampRate: nextRamp,
+    };
+    setProfile(updatedProfile);
+
+    if (weeks.length > 0) {
+      setWeeks((oldWeeks) =>
+        rebuildPlanPreservingLogs(oldWeeks, updatedProfile)
+      );
     }
   };
 
@@ -809,6 +810,7 @@ export function App() {
             onOpenGarminModal={() => setIsGarminModalOpen(true)}
             onPushWeekToGarmin={handlePushWeekToGarmin}
             onUpdateStartDate={handleUpdateStartDate}
+            onUpdateRampRate={handleUpdateRampRate}
           />
         )}
 
@@ -856,6 +858,7 @@ export function App() {
             onOpenOnboarding={() => setIsOnboardingOpen(true)}
             onOpenGarminModal={() => setIsGarminModalOpen(true)}
             onQuickRecalibrate5k={handleQuickRecalibrate5k}
+            onUpdateRampRate={handleUpdateRampRate}
             onResetDefaultDemo={handleResetPlanData}
           />
         )}

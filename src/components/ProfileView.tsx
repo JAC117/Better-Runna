@@ -12,9 +12,11 @@ import {
   Heart,
   BatteryCharging,
   ArrowUpRight,
+  TrendingUp,
 } from 'lucide-react';
 import type {
   GarminIntegrationState,
+  RampRate,
   TrainingWeek,
   UserProfile,
 } from '../types';
@@ -22,6 +24,8 @@ import {
   calculatePaceZones,
   calculateRacePredictions,
   formatSecondsToPace,
+  getFitnessTier,
+  RAMP_CONFIGS,
 } from '../utils/planGenerator';
 
 interface ProfileViewProps {
@@ -31,6 +35,7 @@ interface ProfileViewProps {
   onOpenOnboarding: () => void;
   onOpenGarminModal: () => void;
   onQuickRecalibrate5k: (new5kMinutes: number) => void;
+  onUpdateRampRate: (rate: RampRate) => void;
   onResetDefaultDemo: () => void;
 }
 
@@ -41,6 +46,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenOnboarding,
   onOpenGarminModal,
   onQuickRecalibrate5k,
+  onUpdateRampRate,
   onResetDefaultDemo,
 }) => {
   const allWorkouts = weeks.flatMap((w) => w.workouts);
@@ -55,6 +61,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const zones = calculatePaceZones(profile.current5kMinutes);
   const predictions = calculateRacePredictions(profile.current5kMinutes);
+  const fitnessTier = getFitnessTier(profile.current5kMinutes);
+  const activeRamp: RampRate = profile.rampRate || 'standard';
 
   const fiveKMinFloor = Math.floor(profile.current5kMinutes);
   const fiveKSecRem = Math.round(
@@ -81,7 +89,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div>
             <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-widest text-[#CCFF00]">
               <Sparkles className="w-3.5 h-3.5" />
-              Runna Adaptive Athlete
+              Runna Adaptive Athlete • {fitnessTier}
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-white mt-0.5">
               {profile.name}
@@ -93,7 +101,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   <span className="text-white font-semibold">
                     {profile.goalLabel}
                   </span>{' '}
-                  • {profile.daysPerWeek} runs/week • Target Date:{' '}
+                  • {profile.daysPerWeek} runs/week •{' '}
+                  <span className="capitalize">{activeRamp}</span> ramping • Target Date:{' '}
                   {profile.targetRaceDate}
                 </>
               ) : (
@@ -274,27 +283,29 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="text-2xl font-black font-mono-tabular text-white">
               {profile.daysPerWeek} Days/Wk
             </div>
-            <span className="text-[11px] text-zinc-500">
-              {profile.planWeeks}-Week Periodized Block
+            <span className="text-[11px] text-zinc-500 capitalize">
+              {profile.planWeeks} Wks • {activeRamp} Ramping
             </span>
           </div>
         </div>
       </div>
 
-      {/* Live Fitness & Pace Recalibration Engine */}
+      {/* Live Fitness & Distance Ramping Calibration Engine */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-6 p-6 rounded-3xl bg-[#13161F] border border-white/10 space-y-5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <div>
               <h2 className="text-base font-black text-white flex items-center gap-2">
                 <Activity className="w-4 h-4 text-[#CCFF00]" />
-                Adaptive Pace Calibration
+                Fitness & Distance Ramping Calibration
               </h2>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Adjust your 5K benchmark below to dynamically update all target
-                paces across your training plan and Garmin watch.
+                Adjust your 5K benchmark or weekly ramping level to dynamically recalculate both workout distances and target paces.
               </p>
             </div>
+            <span className="px-2.5 py-1 rounded-full bg-[#CCFF00]/15 border border-[#CCFF00]/35 text-[10px] font-mono-tabular font-extrabold uppercase text-[#CCFF00] shrink-0">
+              {fitnessTier}
+            </span>
           </div>
 
           <div className="p-5 rounded-2xl bg-[#181C28] border border-white/10 space-y-4">
@@ -352,6 +363,41 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   {zones.interval.label}
                 </div>
               </div>
+            </div>
+
+            {/* Distance Ramping Level Control */}
+            <div className="pt-3 border-t border-white/8 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-extrabold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-[#CCFF00]" />
+                  Weekly Distance Ramping
+                </span>
+                <span className="text-[11px] font-mono-tabular text-zinc-400">
+                  {RAMP_CONFIGS[activeRamp].shortLabel}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(['low', 'standard', 'high'] as const).map((rateKey) => {
+                  const selected = activeRamp === rateKey;
+                  return (
+                    <button
+                      key={rateKey}
+                      type="button"
+                      onClick={() => onUpdateRampRate(rateKey)}
+                      className={`py-2 px-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider border transition cursor-pointer ${
+                        selected
+                          ? 'bg-[#CCFF00] text-black border-[#CCFF00]'
+                          : 'bg-black/40 text-zinc-400 border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {rateKey}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-relaxed">
+                {RAMP_CONFIGS[activeRamp].description}
+              </p>
             </div>
           </div>
         </div>

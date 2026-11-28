@@ -27,6 +27,7 @@ export function buildInitialSeedPayload() {
     goalLabel: 'Improve 10K Time',
     current5kMinutes: 23.5,
     daysPerWeek: 4,
+    rampRate: 'standard',
     startDate: startIso,
     customStartDate: undefined,
     targetRaceDate: toIsoLocal(raceDt),

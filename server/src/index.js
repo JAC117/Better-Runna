@@ -42,6 +42,7 @@ function rowToProfile(row) {
     goalLabel: row.goal_label,
     current5kMinutes: Number(row.current_5k_minutes),
     daysPerWeek: Number(row.days_per_week),
+    rampRate: row.ramp_rate || 'standard',
     startDate: row.start_date || undefined,
     customStartDate: row.custom_start_date || undefined,
     targetRaceDate: row.target_race_date,
@@ -152,9 +153,9 @@ async function persistUserStateInTransaction(
       await client.query(
         `INSERT INTO user_profiles (
           user_id, name, goal, intent, goal_label, current_5k_minutes,
-          days_per_week, start_date, custom_start_date, target_race_date,
+          days_per_week, ramp_rate, start_date, custom_start_date, target_race_date,
           plan_weeks, current_week, unit, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
         ON CONFLICT (user_id) DO UPDATE SET
           name = EXCLUDED.name,
           goal = EXCLUDED.goal,
@@ -162,6 +163,7 @@ async function persistUserStateInTransaction(
           goal_label = EXCLUDED.goal_label,
           current_5k_minutes = EXCLUDED.current_5k_minutes,
           days_per_week = EXCLUDED.days_per_week,
+          ramp_rate = EXCLUDED.ramp_rate,
           start_date = EXCLUDED.start_date,
           custom_start_date = EXCLUDED.custom_start_date,
           target_race_date = EXCLUDED.target_race_date,
@@ -177,6 +179,7 @@ async function persistUserStateInTransaction(
           profile.goalLabel,
           Number(profile.current5kMinutes),
           Number(profile.daysPerWeek),
+          profile.rampRate || 'standard',
           profile.startDate || null,
           profile.customStartDate || null,
           profile.targetRaceDate,
@@ -219,7 +222,7 @@ async function persistUserStateInTransaction(
           pace_target_alerts, hr_zone_guidance, pushed_workout_ids,
           biometrics_json, recent_activities_json, last_synced_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, NOW()
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, NOW()
         )
         ON CONFLICT (user_id) DO UPDATE SET
           connected = EXCLUDED.connected,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Flame,
   Trophy,
@@ -9,8 +9,9 @@ import {
   Sparkles,
   Activity,
   Calendar,
+  TrendingUp,
 } from 'lucide-react';
-import type { GoalIntent, RaceGoal, UserProfile } from '../types';
+import type { GoalIntent, RaceGoal, RampRate, UserProfile } from '../types';
 import {
   addDaysIso,
   calculatePaceZones,
@@ -19,6 +20,8 @@ import {
   formatSecondsToPace,
   getLocalTodayIso,
   getMondayWeekdayIndex,
+  previewPlanProgression,
+  RAMP_CONFIGS,
 } from '../utils/planGenerator';
 
 interface OnboardingModalProps {
@@ -37,35 +40,35 @@ const GOAL_OPTIONS: {
   {
     id: '5K',
     title: 'Improve 5K Speed',
-    subtitle: 'High-velocity VO2 max intervals & threshold power',
+    subtitle: 'Fitness-scaled aerobic base, controlled intervals & 5K pacing',
     badge: '5.0 KM',
     defaultIntent: 'improve',
   },
   {
     id: '10K',
     title: 'Run or PR a 10K',
-    subtitle: 'Ideal balance of lactate threshold stamina & speed endurance',
+    subtitle: 'Progressive weekly build of threshold stamina & endurance',
     badge: '10.0 KM',
     defaultIntent: 'improve',
   },
   {
     id: 'Half Marathon',
     title: 'Conquer a Half Marathon',
-    subtitle: 'Progressive aerobic volume & race-pace endurance blocks',
+    subtitle: 'Gradual aerobic volume ramping & race-pace endurance blocks',
     badge: '21.1 KM',
     defaultIntent: 'complete',
   },
   {
     id: 'Marathon',
     title: 'Master the Full Marathon',
-    subtitle: 'Structured long-run progressions & late-race fatigue resistance',
+    subtitle: 'Structured long-run progressions, deload weeks & race taper',
     badge: '42.2 KM',
     defaultIntent: 'complete',
   },
   {
     id: 'General Fitness',
     title: 'General Conditioning & Base',
-    subtitle: 'Consistent weekly structure to build lifelong running fitness',
+    subtitle: 'Sustainable weekly progression matched to your fitness level',
     badge: 'ALL LEVELS',
     defaultIntent: 'improve',
   },
@@ -96,6 +99,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   );
   const [daysPerWeek, setDaysPerWeek] = useState<3 | 4 | 5 | 6>(
     initialProfile.daysPerWeek
+  );
+  const [rampRate, setRampRate] = useState<RampRate>(
+    initialProfile.rampRate || 'standard'
   );
   const [useCustomStart, setUseCustomStart] = useState<boolean>(
     Boolean(initialProfile.customStartDate)
@@ -133,6 +139,39 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   const formatted5kTime = `${fiveKMinFloor}:${fiveKSecRem.toString().padStart(2, '0')}`;
   const current5kPace = formatSecondsToPace((current5kMinutes * 60) / 5);
 
+  const progressionPreview = useMemo(
+    () =>
+      previewPlanProgression({
+        name,
+        goal,
+        intent,
+        goalLabel: goal,
+        current5kMinutes,
+        daysPerWeek,
+        rampRate,
+        startDate: effectiveStartDate,
+        customStartDate: useCustomStart ? customStartDate : undefined,
+        targetRaceDate,
+        planWeeks,
+        currentWeek: 1,
+        createdAt: '',
+        unit: 'km',
+      }),
+    [
+      name,
+      goal,
+      intent,
+      current5kMinutes,
+      daysPerWeek,
+      rampRate,
+      effectiveStartDate,
+      useCustomStart,
+      customStartDate,
+      targetRaceDate,
+      planWeeks,
+    ]
+  );
+
   const handleFinish = () => {
     const goalLabel =
       goal === 'General Fitness'
@@ -148,6 +187,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       goalLabel,
       current5kMinutes,
       daysPerWeek,
+      rampRate,
       startDate: effectiveStartDate,
       customStartDate: useCustomStart ? customStartDate : undefined,
       targetRaceDate,
@@ -357,13 +397,19 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 </div>
               </div>
 
-              {/* Live Calculated Pace Preview */}
-              <div className="p-4 rounded-2xl bg-black/40 border border-white/5 space-y-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-zinc-300">
-                  <Activity className="w-3.5 h-3.5 text-[#CCFF00]" />
-                  Calculated Training Pace Zones
+              {/* Live Calculated Pace & Fitness Volume Calibration Preview */}
+              <div className="p-4 rounded-2xl bg-black/40 border border-white/5 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-zinc-300">
+                    <Activity className="w-3.5 h-3.5 text-[#CCFF00]" />
+                    Coach Calibration: Paces & Safe Starting Volume
+                  </div>
+                  <span className="text-[11px] font-mono-tabular font-extrabold px-2.5 py-0.5 rounded-full bg-[#CCFF00]/15 border border-[#CCFF00]/40 text-[#CCFF00]">
+                    {progressionPreview.fitnessTier} Tier
+                  </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 pt-1">
+
+                <div className="grid grid-cols-3 gap-2 pt-0.5">
                   <div className="p-2.5 rounded-xl bg-[#171A23]">
                     <div className="text-[10px] font-bold uppercase text-emerald-400">
                       Easy / Long
@@ -389,6 +435,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                <div className="pt-2 border-t border-white/5 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400">
+                  <span>
+                    Week 1 Long Run:{' '}
+                    <strong className="text-white font-mono-tabular">
+                      {progressionPreview.week1LongRunKm.toFixed(1)} km
+                    </strong>
+                  </span>
+                  <span>
+                    Safe Peak Long Run ({goal}):{' '}
+                    <strong className="text-[#CCFF00] font-mono-tabular">
+                      {progressionPreview.peakLongRunKm.toFixed(1)} km
+                    </strong>
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -397,49 +458,138 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
             <div className="space-y-6">
               <div>
                 <h2 className="text-2xl font-extrabold tracking-tight text-white">
-                  Weekly training commitment
+                  Schedule & distance ramping
                 </h2>
                 <p className="text-sm text-zinc-400 mt-1">
-                  How many days per week can you commit to running? We structure rest days around your key speed and long sessions.
+                  Choose your weekly run days and how conservatively or ambitiously your mileage builds each week.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                {([3, 4, 5, 6] as const).map((days) => {
-                  const active = daysPerWeek === days;
-                  const descriptions: Record<number, string> = {
-                    3: '1 Speed • 1 Tempo • 1 Long Run (High recovery)',
-                    4: '1 Easy • 1 Intervals • 1 Tempo • 1 Long Run (Most Popular)',
-                    5: '2 Easy • 1 Intervals • 1 Tempo • 1 Long Run (Performance)',
-                    6: '3 Easy • 1 Intervals • 1 Tempo • 1 Long Run (High Volume)',
-                  };
-                  return (
-                    <button
-                      key={days}
-                      type="button"
-                      onClick={() => setDaysPerWeek(days)}
-                      className={`p-4 rounded-2xl border text-left transition-all ${
-                        active
-                          ? 'bg-[#CCFF00]/12 border-[#CCFF00] shadow-lg'
-                          : 'bg-[#171A23] border-white/5 hover:border-white/15'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl font-black font-mono-tabular text-white">
+              <div className="space-y-2">
+                <span className="block text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  Runs Per Week
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {([3, 4, 5, 6] as const).map((days) => {
+                    const active = daysPerWeek === days;
+                    const shortDesc: Record<number, string> = {
+                      3: 'High recovery',
+                      4: 'Balanced (Ideal)',
+                      5: 'Aerobic build',
+                      6: 'High frequency',
+                    };
+                    return (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => setDaysPerWeek(days)}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                          active
+                            ? 'bg-[#CCFF00]/12 border-[#CCFF00] shadow-lg'
+                            : 'bg-[#171A23] border-white/5 hover:border-white/15'
+                        }`}
+                      >
+                        <div className="text-xl font-black font-mono-tabular text-white">
                           {days} Days
-                        </span>
-                        {days === 4 && (
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#CCFF00] text-black">
-                            Ideal
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
-                        {descriptions[days]}
-                      </p>
-                    </button>
-                  );
-                })}
+                        </div>
+                        <p className="text-[11px] text-zinc-400 mt-1">
+                          {shortDesc[days]}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Distance Ramping Level Selector (Low / Standard / High) */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-[#CCFF00]" />
+                    Distance Ramping Rate
+                  </span>
+                  <span className="text-[11px] font-mono-tabular text-zinc-400">
+                    Every 4th week includes a recovery stepback
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {(['low', 'standard', 'high'] as const).map((rateKey) => {
+                    const cfg = RAMP_CONFIGS[rateKey];
+                    const selected = rampRate === rateKey;
+                    const badgeLabel =
+                      rateKey === 'low'
+                        ? '~6% / wk'
+                        : rateKey === 'standard'
+                        ? '10% Rule'
+                        : '~13% / wk';
+                    const titleLabel =
+                      rateKey === 'low'
+                        ? 'Low'
+                        : rateKey === 'standard'
+                        ? 'Standard'
+                        : 'High';
+
+                    return (
+                      <button
+                        key={rateKey}
+                        type="button"
+                        onClick={() => setRampRate(rateKey)}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                          selected
+                            ? 'bg-[#CCFF00]/12 border-[#CCFF00] shadow-lg'
+                            : 'bg-[#171A23] border-white/5 hover:border-white/15'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="text-sm font-black text-white uppercase tracking-wide">
+                              {titleLabel}
+                            </span>
+                            <span
+                              className={`text-[10px] font-mono-tabular font-bold px-2 py-0.5 rounded-full ${
+                                selected
+                                  ? 'bg-[#CCFF00] text-black'
+                                  : 'bg-white/5 text-zinc-400'
+                              }`}
+                            >
+                              {badgeLabel}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400 mt-2 leading-relaxed">
+                            {cfg.description}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Live Distance Progression Readout */}
+              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+                    Week 1 Starting Volume ({progressionPreview.fitnessTier})
+                  </span>
+                  <span className="text-base font-black font-mono-tabular text-white mt-0.5 block">
+                    {progressionPreview.week1TotalKm.toFixed(1)} km/wk
+                  </span>
+                  <span className="text-[11px] font-mono-tabular text-zinc-400">
+                    Long Run: {progressionPreview.week1LongRunKm.toFixed(1)} km
+                  </span>
+                </div>
+                <div className="border-l border-white/10 pl-3">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#CCFF00] block">
+                    Peak Week Target ({goal})
+                  </span>
+                  <span className="text-base font-black font-mono-tabular text-[#CCFF00] mt-0.5 block">
+                    {progressionPreview.peakWeekTotalKm.toFixed(1)} km/wk
+                  </span>
+                  <span className="text-[11px] font-mono-tabular text-zinc-300">
+                    Peak Long Run: {progressionPreview.peakLongRunKm.toFixed(1)} km
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -582,21 +732,31 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       Starts {formatIsoShort(effectiveStartDate)} • {planWeeks} Wks
                     </span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-4 gap-2 text-center">
                     <div className="p-2.5 rounded-xl bg-black/30">
-                      <div className="text-[10px] text-zinc-400 uppercase">Primary Goal</div>
-                      <div className="text-sm font-bold text-white mt-0.5">{goal}</div>
+                      <div className="text-[10px] text-zinc-400 uppercase">Goal</div>
+                      <div className="text-xs sm:text-sm font-bold text-white mt-0.5 truncate">
+                        {goal}
+                      </div>
                     </div>
                     <div className="p-2.5 rounded-xl bg-black/30">
-                      <div className="text-[10px] text-zinc-400 uppercase">5K Fitness</div>
-                      <div className="text-sm font-bold font-mono-tabular text-[#CCFF00] mt-0.5">
+                      <div className="text-[10px] text-zinc-400 uppercase">
+                        {progressionPreview.fitnessTier}
+                      </div>
+                      <div className="text-xs sm:text-sm font-bold font-mono-tabular text-[#CCFF00] mt-0.5">
                         {formatted5kTime}
                       </div>
                     </div>
                     <div className="p-2.5 rounded-xl bg-black/30">
-                      <div className="text-[10px] text-zinc-400 uppercase">Interval Pace</div>
-                      <div className="text-sm font-bold font-mono-tabular text-white mt-0.5">
-                        {liveZones.interval.label.split('–')[0]}/km
+                      <div className="text-[10px] text-zinc-400 uppercase">Ramping</div>
+                      <div className="text-xs sm:text-sm font-bold text-white mt-0.5 capitalize">
+                        {rampRate}
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-black/30">
+                      <div className="text-[10px] text-zinc-400 uppercase">Long Run</div>
+                      <div className="text-xs sm:text-sm font-bold font-mono-tabular text-white mt-0.5">
+                        {progressionPreview.week1LongRunKm.toFixed(1)}→{progressionPreview.peakLongRunKm.toFixed(1)}k
                       </div>
                     </div>
                   </div>

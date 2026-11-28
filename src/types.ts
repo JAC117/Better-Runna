@@ -9,6 +9,10 @@ export type RaceGoal = '5K' | '10K' | 'Half Marathon' | 'Marathon' | 'General Fi
 
 export type GoalIntent = 'complete' | 'improve';
 
+export type RampRate = 'low' | 'standard' | 'high';
+
+export type FitnessTier = 'Beginner' | 'Intermediate' | 'Competitive' | 'Advanced';
+
 export type WorkoutType = 'Easy Run' | 'Tempo' | 'Intervals' | 'Long Run' | 'Rest' | 'Race Day';
 
 export interface UserProfile {
@@ -18,6 +22,7 @@ export interface UserProfile {
   goalLabel: string; // e.g., "Improve 5K Time", "Run a 10K"
   current5kMinutes: number; // e.g. 25.0 (25:00 5K equivalent)
   daysPerWeek: 3 | 4 | 5 | 6;
+  rampRate?: RampRate; // 'low' (~6%/wk) | 'standard' (~10%/wk) | 'high' (~13%/wk)
   startDate: string; // YYYY-MM-DD (synced to current date unless customStartDate is set)
   customStartDate?: string; // Optional YYYY-MM-DD override chosen by user
   targetRaceDate: string; // YYYY-MM-DD
